@@ -132,6 +132,19 @@ it('keeps demand slot identifiers stable when demo seed is rerun', function (): 
         ->and(DB::table('demand_slots')->count())->toBe(209);
 });
 
+it('restores default planning rule weights when demo seed is rerun', function (): void {
+    $this->seed();
+
+    DB::table('planning_rule_settings')->where('code', 'consecutive_nights')->update([
+        'weight' => 123,
+        'updated_at' => now(),
+    ]);
+
+    $this->seed();
+
+    expect(DB::table('planning_rule_settings')->where('code', 'consecutive_nights')->value('weight'))->toBe(250000);
+});
+
 it('includes resource details for schedule violations', function (): void {
     $this->withoutVite();
     $this->seed();

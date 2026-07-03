@@ -12,7 +12,7 @@ final class DemoScheduleFromImageSeeder extends Seeder
     public function run(): void
     {
         $data = json_decode(file_get_contents(base_path('sources/grafik_2026_07.extracted.json')), true, flags: JSON_THROW_ON_ERROR);
-        PlanningRuleSettings::ensureDefaults();
+        PlanningRuleSettings::resetWeightsToDefaults();
 
         DB::transaction(function () use ($data): void {
             $groupId = DB::table('resource_groups')->updateOrInsert(

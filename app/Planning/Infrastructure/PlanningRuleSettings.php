@@ -70,6 +70,24 @@ final class PlanningRuleSettings
         }
     }
 
+    public static function resetWeightsToDefaults(): void
+    {
+        self::ensureDefaults();
+
+        if (! Schema::hasTable('planning_rule_settings')) {
+            return;
+        }
+
+        foreach (config('planning.rules', []) as $rule) {
+            DB::table('planning_rule_settings')
+                ->where('code', $rule['code'])
+                ->update([
+                    'weight' => $rule['weight'],
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
     public static function all(): array
     {
         self::ensureDefaults();
