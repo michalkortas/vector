@@ -73,10 +73,12 @@ final class PlanningRuleSettings
     public static function all(): array
     {
         self::ensureDefaults();
+        $configRules = collect(config('planning.rules', []))->keyBy('code');
 
         if (! Schema::hasTable('planning_rule_settings')) {
             return collect(config('planning.rules', []))->map(fn (array $rule): array => [
                 ...$rule,
+                'description' => $rule['description'] ?? '',
                 'type' => 'standard',
                 'is_active' => true,
                 'can_toggle' => (bool) ($rule['can_toggle'] ?? true),
@@ -95,6 +97,7 @@ final class PlanningRuleSettings
             ->map(fn ($rule): array => [
                 'code' => $rule->code,
                 'name' => $rule->name,
+                'description' => $configRules->get($rule->code)['description'] ?? '',
                 'type' => $rule->type,
                 'is_active' => (bool) $rule->is_active,
                 'can_toggle' => $hasCanToggle ? (bool) $rule->can_toggle : true,

@@ -26,6 +26,6 @@ final class SecondaryUsageScoreRule implements ScoreRuleInterface
         }
         $weight = (int) config('planning.weights.secondary_usage', 300);
 
-        return new ScoreComponent($this->code(), 'Użycie secondary', $count * $weight, $weight, false, ['count' => $count]);
+        return new ScoreComponent($this->code(), 'Obsada drugiego wyboru', $count * $weight, $weight, false, ['count' => $count]);
     }
 }

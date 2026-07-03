@@ -26,7 +26,7 @@ type Resource = {
 };
 type Violation = { id: number; code: string; severity: string; message: string; demand_slot_id: number | null; resource_id: number | null; employee_number: number | null; resource_name: string | null; metadata?: { missing_minutes?: number; planned_work_minutes?: number; paid_absence_minutes?: number; target_minutes?: number } | null };
 type ScoreComponent = { id: number; code: string; label: string; score: number; hard: boolean };
-type PlanningRule = { code: string; name: string; type: string; is_active: boolean; can_toggle: boolean; weight: number };
+type PlanningRule = { code: string; name: string; description: string; type: string; is_active: boolean; can_toggle: boolean; weight: number };
 type Absence = { employee_number: number; resource_name: string; type_name: string; starts_at: string; ends_at: string };
 type Holiday = { holiday_date: string; name: string; scope: string; blocks_planning: boolean };
 type ScheduleRow = { shift_code: string; shift_name: string; unit_code: string; unit_name: string };
@@ -530,6 +530,7 @@ function PlanningRuleRow({ rule }: { rule: PlanningRule }) {
         />
         <span className="min-w-0">
           <span className="block font-medium text-zinc-950">{rule.name}</span>
+          {rule.description && <span className="mt-1 block text-xs leading-5 text-zinc-600">{rule.description}</span>}
           <span className="mt-1 inline-flex rounded-sm border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[11px] uppercase text-zinc-600">{rule.type === 'standard' ? 'standardowa' : rule.type}</span>
           {!rule.can_toggle && <span className="ml-1 mt-1 inline-flex rounded-sm border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] uppercase text-red-700">wymagana</span>}
         </span>

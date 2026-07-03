@@ -26,6 +26,6 @@ final class FallbackUsageScoreRule implements ScoreRuleInterface
         }
         $weight = (int) config('planning.weights.fallback_usage', 1500);
 
-        return new ScoreComponent($this->code(), 'Użycie fallback', $count * $weight, $weight, false, ['count' => $count]);
+        return new ScoreComponent($this->code(), 'Obsada rezerwowa', $count * $weight, $weight, false, ['count' => $count]);
     }
 }
