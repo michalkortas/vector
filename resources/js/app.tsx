@@ -645,7 +645,7 @@ function EmployeeDayCell({ info }: { info: EmployeeDayInfo }) {
     ? (info.colorClass ?? 'border-emerald-300 bg-emerald-50 text-emerald-950')
       : info.type === 'absence'
         ? 'border-amber-300 bg-amber-50 text-amber-950'
-        : 'border-zinc-200 bg-zinc-50 text-zinc-300';
+        : 'border-zinc-300 bg-zinc-100 text-zinc-300';
 
   return (
     <td title={info.title} className={`border p-1 text-center text-[11px] font-semibold leading-tight ${color}`}>
