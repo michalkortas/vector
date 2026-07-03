@@ -157,6 +157,63 @@ it('includes resource details for schedule violations', function (): void {
         ->and($violations[0]['metadata']['missing_minutes'])->toBe(145);
 });
 
+it('separates demand coverage from technical top ups in the schedule payload', function (): void {
+    $this->withoutVite();
+    $this->seed();
+
+    $periodId = (int) DB::table('planning_periods')->where('starts_on', '2026-07-01')->value('id');
+    $runId = DB::table('planning_runs')->insertGetId([
+        'planning_period_id' => $periodId,
+        'status' => 'completed',
+        'solver_name' => 'test',
+        'random_seed' => 1,
+        'config' => json_encode([]),
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $slot = DB::table('demand_slots')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
+        ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->whereDate('demand_slots.starts_at', '2026-07-01')
+        ->where('planning_units.code', 'delivery_room')
+        ->where('shift_templates.code', 'DAY_12H')
+        ->first(['demand_slots.*']);
+    $resourceId = (int) DB::table('resources')->where('employee_number', 2)->value('id');
+    $wardManagerId = (int) DB::table('resources')->where('employee_number', 1)->value('id');
+
+    foreach ([
+        [1, $resourceId, $slot->starts_at, $slot->ends_at, 720, []],
+        [2, $resourceId, '2026-07-01 14:35:00', $slot->ends_at, 265, ['segment_kind' => 'supplementary_nominal_top_up', 'covers_demand' => false]],
+        [3, $wardManagerId, $slot->starts_at, '2026-07-01 12:35:00', 335, ['segment_kind' => 'ward_manager_contract_split_prefix']],
+    ] as [$position, $assignmentResourceId, $startsAt, $endsAt, $duration, $metadata]) {
+        DB::table('assignments')->insert([
+            'planning_period_id' => $periodId,
+            'demand_slot_id' => $slot->id,
+            'slot_position' => $position,
+            'segment_position' => 1,
+            'resource_id' => $assignmentResourceId,
+            'planning_run_id' => $runId,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
+            'duration_minutes' => $duration,
+            'source' => 'test',
+            'is_locked' => false,
+            'metadata' => json_encode($metadata),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    $layers = collect($this->get('/')->inertiaProps('assignments'))
+        ->sortBy('slot_position')
+        ->pluck('display_layer')
+        ->values()
+        ->all();
+
+    expect($layers)->toBe(['demand', 'resource_only', 'top_up']);
+});
+
 it('completes a planning job and writes valid assignments', function (): void {
     config()->set('planning.solver.population_size', 12);
     config()->set('planning.solver.generations', 8);

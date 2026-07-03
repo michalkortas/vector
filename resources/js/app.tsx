@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 
 type Period = { id: number; name: string; starts_on: string; ends_on: string; monthly_norm_minutes: number; quarterly_norm_minutes: number };
 type PlanningRun = { id: number; status: string; score_total: number | null; hard_violations_count: number; soft_violations_count: number; unassigned_slots_count: number; metadata?: { phase?: string; evaluated_candidates?: number; estimated_candidates?: number; completed_generations?: number; configured_generations?: number; configured_population_size?: number; progress_percent?: number; best_score?: number; stop_reason?: string; time_limit_seconds?: number } } | null;
-type Assignment = { id: number; demand_slot_id: number; resource_id: number | null; segment_position: number; is_locked: boolean | number; source: string; metadata: { segment_kind?: string } | null; employee_number: number | null; resource_name: string | null; starts_at: string; ends_at: string; duration_minutes: number; slot_starts_at: string; unit_name: string; shift_code: string; shift_name: string };
+type Assignment = { id: number; demand_slot_id: number; resource_id: number | null; slot_position: number; segment_position: number; is_locked: boolean | number; source: string; display_layer: 'demand' | 'top_up' | 'resource_only'; metadata: { segment_kind?: string } | null; employee_number: number | null; resource_name: string | null; starts_at: string; ends_at: string; duration_minutes: number; slot_starts_at: string; unit_name: string; shift_code: string; shift_name: string };
 type Resource = {
   id: number;
   employee_number: number;
@@ -93,10 +93,6 @@ function selectedDayInfo(dayDate: string, employeeNumber: number | null, assignm
   return { type: 'off', label: 'dW', title: 'Dzień wolny' };
 }
 
-function isWardManagerSplit(assignment: Assignment) {
-  return assignment.metadata?.segment_kind === 'ward_manager_prefix';
-}
-
 function violationDetails(violation: Violation) {
   if (!['nominal_underfilled', 'nominal_carryover'].includes(violation.code) || !violation.metadata?.missing_minutes) {
     return null;
@@ -147,13 +143,15 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
   const topUpByCell = new Map<string, Assignment[]>();
   const topUpRows = new Set<string>();
   for (const assignment of props.assignments) {
+    if (assignment.display_layer === 'resource_only') {
+      continue;
+    }
+
     const day = new Date(assignment.slot_starts_at).getDate();
     const key = `${assignment.shift_code}:${assignment.unit_name}:${day}`;
-    const isDayWardManagerSplit = isWardManagerSplit(assignment) && assignment.shift_code === 'DAY_12H';
-    const isTopUpRowAssignment = isDayWardManagerSplit;
-    const target = isTopUpRowAssignment ? topUpByCell : byCell;
+    const target = assignment.display_layer === 'top_up' ? topUpByCell : byCell;
     target.set(key, [...(target.get(key) ?? []), assignment].sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.segment_position - b.segment_position));
-    if (isTopUpRowAssignment) {
+    if (assignment.display_layer === 'top_up') {
       topUpRows.add(`${assignment.shift_code}:${assignment.unit_name}`);
     }
   }

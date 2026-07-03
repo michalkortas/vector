@@ -35,6 +35,7 @@ final class ScheduleController extends Controller
                     'assignments.id',
                     'assignments.demand_slot_id',
                     'assignments.resource_id',
+                    'assignments.slot_position',
                     'assignments.segment_position',
                     'assignments.is_locked',
                     'assignments.source',
@@ -51,6 +52,12 @@ final class ScheduleController extends Controller
                 ])
                 ->map(function ($assignment) {
                     $assignment->metadata = json_decode($assignment->metadata ?? '[]', true) ?: [];
+                    $segmentKind = $assignment->metadata['segment_kind'] ?? null;
+                    $assignment->display_layer = match (true) {
+                        in_array($segmentKind, ['ward_manager_prefix', 'ward_manager_contract_split_prefix'], true) => 'top_up',
+                        ($assignment->metadata['covers_demand'] ?? true) === false => 'resource_only',
+                        default => 'demand',
+                    };
 
                     return $assignment;
                 });
