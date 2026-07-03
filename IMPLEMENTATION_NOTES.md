@@ -1,0 +1,25 @@
+# Implementation Notes
+
+- Aplikacja nazywa się `Vector`.
+- Repozytorium zawierało katalog `sources/`, więc dane demo i ekstrakcję zapisano tam zamiast tworzyć drugi katalog `source/`.
+- Solver core używa DTO i kontraktów; dostęp do bazy znajduje się w warstwie `Infrastructure`, kontrolerach, seederach i jobach.
+- Absencje urlopowe z JPG odtworzono jako dane niepewne, ale deterministyczne. Wiersz zwolnień lekarskich nie miał czytelnych wpisów.
+- Domyślny seed demo nadaje wszystkim aktywnym zasobom bazową umiejętność medyczną. Polityki `planning_unit_resource_rules` sterują użyciem primary/fallback bez hardcodowania oddziałowej w solverze.
+- MVP uruchamia job planowania przez kolejkę. W testach można używać `QUEUE_CONNECTION=sync`.
+- Limity czasu pracy są konfigurowane w seedzie i `config/planning.php`; nie są kodowaniem przepisów prawa pracy.
+- Święta są konfigurowane w tabeli `calendar_holidays` i opcjonalnie seedowane z sekcji `holidays` w JSON źródłowym. Zakres może być globalny, per zasób albo per grupa zasobów.
+- Niedostępności cykliczne zasobów są konfigurowane w `availability_rules`; demo wyklucza oddziałową z planowania w soboty i niedziele przez reguły w JSON, nie przez wyjątek w solverze.
+- Stanowisko oddziałowej jest osobną jednostką planistyczną `ward_manager`/`Oddziałowa`; zasób z rolą `ward_manager` jest `primary` tylko dla `SHORT_DAY` na tej jednostce, a gdzie indziej występuje jako fallback.
+- Zasoby z `workload_policy=minimize_usage` reprezentują kontrakty/zlecenia: nie mają targetu nominalnego ani miesięcznego limitu, są kandydatami fallback i każda zaplanowana godzina zwiększa koszt wyniku. Zasoby etatowe są oceniane względem `praca + płatna absencja = nominał`.
+- Limity czasu zasobów są parametryzowane per okres w `resource_planning_limits`; dla etatu `max_minutes_per_month` jest równe nominalnemu targetowi okresu, a dla kontraktów/zleceń pozostaje puste.
+- Wartości typu `7x12+6,35` z JPG oznaczają rozplanowane dyżury z obrazu, nie nominał. Są zachowywane jako `planned_duties_expression_raw` i `planned_duties_minutes`; dla kontraktów także jako `preferred_max_minutes`. Dla etatów miesięczny target i max pochodzą z pełnego nominału okresu przemnożonego przez `employment_fraction`.
+- Po zapisie wyniku solvera persystencja próbuje domknąć etatowców do nominału przez pełne przejęcie dyżuru kontraktu/zlecenia, jeśli pasuje czasowo, skillowo i limitowo. Dla sensownej reszty godzin może też zastąpić dyżur kontraktowy segmentem etatowca i początkiem dopełnionym przez oddziałową.
+- Dopełnienia częściowe są zarezerwowane dla zasobu z rolą `ward_manager` przejmującego początek dniówki. Limity takiego dopełnienia, minimalny segment etatowca, dozwolone kody zmian i maksymalna liczba prefiksów pochodzą z metadanych `planning_rule_settings` oraz `resource_substitution_policies`, nie ze stałych w persystencji.
+- Jeżeli po pełnych przejęciach dyżurów zostaje miesięczny niedobór etatu, wynik zapisuje `nominal_carryover` jako miękką informację do rozliczenia kwartalnego. Nie jest to twarde naruszenie miesięczne; źródłowy JPG pokazuje taki przypadek dla nr 12 (`4x12` plus urlop, bez domknięcia miesięcznego nominału).
+- Kontrakty/zlecenia mają miękki limit `preferred_max_minutes` z JPG. Scoring karze każdą godzinę kontraktu oraz mocniej karze przekroczenie tego limitu per osoba. Po zapisie wyniku persystencja może dodatkowo obniżyć godziny kontraktowe przez prefiks oddziałowej `07:00-12:35` na dniówce, pozostawiając kontraktowi końcówkę dyżuru.
+- Solver ma miękką regułę `avoid_same_resource_streaks`, która karze obsadzanie tej samej osoby dzień po dniu na tym samym wierszu grafiku, żeby serie dyżurów nie kumulowały się na końcu miesiąca.
+- Standardowe reguły planowania są konfigurowane w `planning_rule_settings`; seed dodaje brakujące reguły, ale nie nadpisuje ręcznie zmienionej aktywności ani wag. Nowe miękkie reguły nocne karzą pracę w dzień po nocce oraz nocki pod rząd.
+- Twarde reguły bezpieczeństwa, w tym minimalny odpoczynek 11h, mają `can_toggle=false`: są widoczne w panelu reguł, ale nie można ich odznaczyć. Noc 19:00-7:00 plus dzień 7:00-19:00 daje `min_rest_violation` z przerwą 0 minut.
+- Domyślne wagi reguł nocnych preferują unikanie nocek pod rząd (`consecutive_nights=250000`) mocniej niż równomierny rozkład nocek/weekendów (`even_nights=3000`, `even_weekends=500`).
+- Solver raportuje postęp przez callback w `SolverConfig`; job zapisuje bieżącą fazę, liczbę prób, szacowaną liczbę prób, generację i procent do `planning_runs.metadata`. Procent jest liczony po ocenionych kandydatach, nie tylko po zakończonych generacjach, a frontend polluje co sekundę podczas generowania.
+- Testy Pest używają osobnej bazy MariaDB `vector_testing`, żeby `RefreshDatabase` nie czyścił lokalnej bazy aplikacji `vector`.

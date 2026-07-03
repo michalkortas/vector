@@ -1,0 +1,118 @@
+<?php
+
+namespace App\Planning\Infrastructure;
+
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+final class PlanningRuleSettings
+{
+    public static function ensureDefaults(): void
+    {
+        if (! Schema::hasTable('planning_rule_settings')) {
+            return;
+        }
+
+        foreach (config('planning.rules', []) as $rule) {
+            $canToggle = (bool) ($rule['can_toggle'] ?? true);
+            $existing = DB::table('planning_rule_settings')->where('code', $rule['code'])->first();
+            if ($existing === null) {
+                DB::table('planning_rule_settings')->insert([
+                    'code' => $rule['code'],
+                    'name' => $rule['name'],
+                    'type' => 'standard',
+                    'is_active' => true,
+                    ...(Schema::hasColumn('planning_rule_settings', 'can_toggle') ? ['can_toggle' => $canToggle] : []),
+                    'weight' => $rule['weight'],
+                    'metadata' => json_encode(['source' => 'config', ...($rule['metadata'] ?? [])]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                continue;
+            }
+
+            $updates = [
+                'name' => $rule['name'],
+                'type' => 'standard',
+                'updated_at' => now(),
+            ];
+            if (Schema::hasColumn('planning_rule_settings', 'can_toggle')) {
+                $updates['can_toggle'] = $canToggle;
+            }
+            if (! $canToggle) {
+                $updates['is_active'] = true;
+            }
+            if ($rule['code'] === 'even_hours' && (int) $existing->weight === 1) {
+                $updates['weight'] = $rule['weight'];
+            }
+            if ($rule['code'] === 'avoid_same_resource_streaks' && (int) $existing->weight === 20000) {
+                $updates['weight'] = $rule['weight'];
+            }
+            if ($rule['code'] === 'contract_usage' && (int) $existing->weight === 500) {
+                $updates['weight'] = $rule['weight'];
+            }
+            if ($rule['code'] === 'even_nights' && (int) $existing->weight === 500) {
+                $updates['weight'] = $rule['weight'];
+            }
+            $metadata = json_decode($existing->metadata ?? '[]', true) ?: [];
+            $defaultMetadata = $rule['metadata'] ?? [];
+            foreach ($defaultMetadata as $key => $value) {
+                if (! array_key_exists($key, $metadata)) {
+                    $metadata[$key] = $value;
+                }
+            }
+            if ($defaultMetadata !== []) {
+                $updates['metadata'] = json_encode($metadata);
+            }
+
+            DB::table('planning_rule_settings')->where('code', $rule['code'])->update($updates);
+        }
+    }
+
+    public static function all(): array
+    {
+        self::ensureDefaults();
+
+        if (! Schema::hasTable('planning_rule_settings')) {
+            return collect(config('planning.rules', []))->map(fn (array $rule): array => [
+                ...$rule,
+                'type' => 'standard',
+                'is_active' => true,
+                'can_toggle' => (bool) ($rule['can_toggle'] ?? true),
+            ])->all();
+        }
+
+        $hasCanToggle = Schema::hasColumn('planning_rule_settings', 'can_toggle');
+        $columns = ['code', 'name', 'type', 'is_active', 'weight'];
+        if ($hasCanToggle) {
+            $columns[] = 'can_toggle';
+        }
+
+        return DB::table('planning_rule_settings')
+            ->orderBy('id')
+            ->get($columns)
+            ->map(fn ($rule): array => [
+                'code' => $rule->code,
+                'name' => $rule->name,
+                'type' => $rule->type,
+                'is_active' => (bool) $rule->is_active,
+                'can_toggle' => $hasCanToggle ? (bool) $rule->can_toggle : true,
+                'weight' => (int) $rule->weight,
+            ])
+            ->all();
+    }
+
+    public static function applyToConfig(): array
+    {
+        $settings = collect(self::all())->keyBy('code')->all();
+        foreach ($settings as $code => $setting) {
+            config()->set('planning.weights.'.$code, $setting['weight']);
+            if ($code === 'contract_usage') {
+                config()->set('planning.weights.contract_usage_per_hour', $setting['weight']);
+            }
+        }
+
+        return $settings;
+    }
+}
