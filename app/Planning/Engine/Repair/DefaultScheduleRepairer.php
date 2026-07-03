@@ -31,6 +31,7 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
                 if ($genes[$key] !== null && $slot !== null) {
                     $used[$genes[$key]][] = $slot;
                 }
+
                 continue;
             }
 
@@ -108,6 +109,7 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
                 foreach ($assignments as $assignment) {
                     if ($previous === null) {
                         $previous = $assignment;
+
                         continue;
                     }
 
@@ -116,10 +118,12 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
                         ->diffInDays(CarbonImmutable::parse($assignment['slot']['starts_at'])->startOfDay());
                     if ($assignment['resource_id'] !== $previous['resource_id'] || $daysBetween > 2) {
                         $previous = $assignment;
+
                         continue;
                     }
                     if (array_key_exists($assignment['key'], $problem->lockedAssignments)) {
                         $previous = $assignment;
+
                         continue;
                     }
 
@@ -335,10 +339,72 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
             } elseif ($sameShift && $daysBetween <= 1) {
                 $score += 100_000;
             }
-            $score += (3 - $daysBetween) * 5_000;
+            $score += (3 - $daysBetween) * 25_000;
         }
 
+        $score += $this->resourceDayStreakRepairPenalty($slot, $resourceId, $used);
+        $score += $this->dayNightRepairPenalty($slot, $resourceId, $used);
+
         return $score;
+    }
+
+    private function resourceDayStreakRepairPenalty(array $slot, int $resourceId, array $used): int
+    {
+        $days = [CarbonImmutable::parse($slot['starts_at'])->toDateString()];
+        foreach ($used[$resourceId] ?? [] as $usedSlot) {
+            $days[] = CarbonImmutable::parse($usedSlot['starts_at'])->toDateString();
+        }
+
+        $days = array_values(array_unique($days));
+        sort($days);
+
+        $penalty = 0;
+        $streakLength = 1;
+        for ($i = 1; $i < count($days); $i++) {
+            $daysBetween = CarbonImmutable::parse($days[$i - 1])
+                ->startOfDay()
+                ->diffInDays(CarbonImmutable::parse($days[$i])->startOfDay());
+            if ($daysBetween > 1) {
+                $streakLength = 1;
+
+                continue;
+            }
+
+            $streakLength++;
+            $penalty += ($streakLength - 1) * ($streakLength - 1) * 200_000;
+        }
+
+        return $penalty;
+    }
+
+    private function dayNightRepairPenalty(array $slot, int $resourceId, array $used): int
+    {
+        if (! in_array(($slot['shift_code'] ?? ''), ['DAY_12H', 'NIGHT_12H'], true)) {
+            return 0;
+        }
+
+        $total = 1;
+        $nights = ($slot['shift_code'] ?? '') === 'NIGHT_12H' ? 1 : 0;
+        foreach ($used[$resourceId] ?? [] as $usedSlot) {
+            if (! in_array(($usedSlot['shift_code'] ?? ''), ['DAY_12H', 'NIGHT_12H'], true)) {
+                continue;
+            }
+
+            $total++;
+            if (($usedSlot['shift_code'] ?? '') === 'NIGHT_12H') {
+                $nights++;
+            }
+        }
+
+        if ($total < 3) {
+            return 0;
+        }
+
+        $nightPercent = (int) round(($nights / $total) * 100);
+        $underPreferred = max(0, 25 - $nightPercent);
+        $overPreferred = max(0, $nightPercent - 60);
+
+        return ($underPreferred ** 2) * 2_000 + ($overPreferred ** 2) * 5_000;
     }
 
     private function hasOverlap(array $slot, int $resourceId, array $used): bool

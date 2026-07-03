@@ -138,6 +138,41 @@ it('penalizes schedules where one employee has only night shifts', function (): 
         ->and($component->score)->toBeGreaterThan(400000);
 });
 
+it('penalizes night-only contract schedules when they have enough assignments', function (): void {
+    config()->set('planning.weights.even_nights', 10);
+
+    $problem = new PlanningProblem(
+        periodId: 1,
+        startsOn: CarbonImmutable::parse('2026-07-01'),
+        endsOn: CarbonImmutable::parse('2026-07-31'),
+        monthlyNormMinutes: 10465,
+        quarterlyNormMinutes: 29570,
+        resources: [
+            20 => ['id' => 20, 'metadata' => ['workload_policy' => 'minimize_usage']],
+        ],
+        skillsByResource: [],
+        planningUnits: [],
+        demandSlots: [
+            1 => ['id' => 1, 'starts_at' => '2026-07-01 19:00:00', 'ends_at' => '2026-07-02 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+            2 => ['id' => 2, 'starts_at' => '2026-07-03 19:00:00', 'ends_at' => '2026-07-04 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+            3 => ['id' => 3, 'starts_at' => '2026-07-05 19:00:00', 'ends_at' => '2026-07-06 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+            4 => ['id' => 4, 'starts_at' => '2026-07-07 19:00:00', 'ends_at' => '2026-07-08 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+        ],
+        requiredSkillsBySlot: [],
+        absences: [],
+        availabilityRules: [],
+        holidays: [],
+        limitsByResource: [],
+        unitRules: [],
+    );
+
+    $component = (new NightShiftDistributionScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 20, '2:1' => 20, '3:1' => 20, '4:1' => 20]));
+
+    expect($component->metadata['night_share_penalty'])->toBe(40000)
+        ->and($component->metadata['assignment_counts'][20])->toBe(4)
+        ->and($component->score)->toBe(400000);
+});
+
 it('penalizes repeated assignments of the same resource in one schedule row', function (): void {
     config()->set('planning.weights.avoid_same_resource_streaks', 20000);
 
@@ -150,8 +185,10 @@ it('penalizes repeated assignments of the same resource in one schedule row', fu
     $component = (new SameResourceStreakScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1, '3:1' => 1]));
 
     expect($component->code)->toBe('avoid_same_resource_streaks')
-        ->and($component->score)->toBe(20000)
-        ->and($component->metadata['count'])->toBe(1);
+        ->and($component->score)->toBe(40000)
+        ->and($component->metadata['count'])->toBe(2)
+        ->and($component->metadata['row_penalty_units'])->toBe(1)
+        ->and($component->metadata['resource_penalty_units'])->toBe(1);
 });
 
 it('penalizes long repeated assignment streaks non-linearly', function (): void {
@@ -166,9 +203,27 @@ it('penalizes long repeated assignment streaks non-linearly', function (): void 
 
     $component = (new SameResourceStreakScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1, '3:1' => 1, '4:1' => 1]));
 
-    expect($component->score)->toBe(1400)
-        ->and($component->metadata['count'])->toBe(14)
+    expect($component->score)->toBe(2800)
+        ->and($component->metadata['count'])->toBe(28)
+        ->and($component->metadata['row_penalty_units'])->toBe(14)
+        ->and($component->metadata['resource_penalty_units'])->toBe(14)
         ->and($component->metadata['longest_streak'])->toBe(4);
+});
+
+it('penalizes repeated work days even across different schedule rows', function (): void {
+    config()->set('planning.weights.avoid_same_resource_streaks', 100);
+
+    $problem = planningProblemForRuleScores([
+        1 => ['id' => 1, 'planning_unit_id' => 10, 'shift_template_id' => 20, 'starts_at' => '2026-07-01 07:00:00', 'ends_at' => '2026-07-01 19:00:00', 'duration_minutes' => 720, 'shift_code' => 'DAY_12H'],
+        2 => ['id' => 2, 'planning_unit_id' => 11, 'shift_template_id' => 21, 'starts_at' => '2026-07-02 19:00:00', 'ends_at' => '2026-07-03 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+        3 => ['id' => 3, 'planning_unit_id' => 12, 'shift_template_id' => 20, 'starts_at' => '2026-07-03 07:00:00', 'ends_at' => '2026-07-03 19:00:00', 'duration_minutes' => 720, 'shift_code' => 'DAY_12H'],
+    ]);
+
+    $component = (new SameResourceStreakScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1, '3:1' => 1]));
+
+    expect($component->metadata['row_penalty_units'])->toBe(0)
+        ->and($component->metadata['resource_penalty_units'])->toBe(5)
+        ->and($component->score)->toBe(500);
 });
 
 it('repairs avoidable same row assignment streaks', function (): void {

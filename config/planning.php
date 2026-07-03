@@ -62,7 +62,7 @@ return [
         ['code' => 'ward_manager_one_split_per_day', 'name' => 'Oddziałowa maks. 1 podział dziennie', 'weight' => 100000, 'can_toggle' => false, 'metadata' => ['max_splits_per_day' => 1, 'max_prefixes_per_period' => 4, 'prefix_minutes' => 335, 'allowed_shift_codes' => ['DAY_12H']]],
         ['code' => 'fallback_usage', 'name' => 'Użycie fallback', 'weight' => 1500],
         ['code' => 'secondary_usage', 'name' => 'Użycie secondary', 'weight' => 300],
-        ['code' => 'even_nights', 'name' => 'Bilans dniówek i nocek', 'weight' => 3000],
+        ['code' => 'even_nights', 'name' => 'Bilans dniówek i nocek', 'weight' => 3000, 'metadata' => ['min_night_share_percent' => 25, 'max_night_share_percent' => 60, 'min_assignments_for_share' => 3]],
         ['code' => 'even_weekends', 'name' => 'Równomierny rozkład weekendów', 'weight' => 500],
     ],
 ];
