@@ -5,6 +5,7 @@ use App\Planning\Engine\Contracts\SolverInterface;
 use App\Planning\Infrastructure\EloquentPlanningProblemFactory;
 use App\Planning\Infrastructure\EloquentPlanningResultPersister;
 use App\Planning\Jobs\RunPlanningJob;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 it('loads demo image data and per resource limits from json source', function (): void {
@@ -233,6 +234,59 @@ it('separates demand coverage from technical top ups in the schedule payload', f
 
     expect($payloadAssignments->pluck('display_layer')->all())->toBe(['demand', 'resource_only', 'top_up'])
         ->and($payloadAssignments->pluck('unit_code')->unique()->values()->all())->toBe(['delivery_room']);
+});
+
+it('detects zero rest conflicts during result post processing', function (): void {
+    $this->seed();
+
+    $periodId = (int) DB::table('planning_periods')->where('starts_on', '2026-07-01')->value('id');
+    $resourceId = (int) DB::table('resources')->where('employee_number', 13)->value('id');
+    $runId = DB::table('planning_runs')->insertGetId([
+        'planning_period_id' => $periodId,
+        'status' => 'completed',
+        'solver_name' => 'test',
+        'random_seed' => 1,
+        'config' => json_encode([]),
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $nightSlot = DB::table('demand_slots')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
+        ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->whereDate('demand_slots.starts_at', '2026-07-27')
+        ->where('planning_units.code', 'newborns')
+        ->where('shift_templates.code', 'NIGHT_12H')
+        ->first(['demand_slots.*']);
+
+    DB::table('assignments')->insert([
+        'planning_period_id' => $periodId,
+        'demand_slot_id' => $nightSlot->id,
+        'slot_position' => 1,
+        'segment_position' => 1,
+        'resource_id' => $resourceId,
+        'planning_run_id' => $runId,
+        'starts_at' => $nightSlot->starts_at,
+        'ends_at' => $nightSlot->ends_at,
+        'duration_minutes' => $nightSlot->duration_minutes,
+        'source' => 'test',
+        'is_locked' => false,
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $method = new ReflectionMethod(EloquentPlanningResultPersister::class, 'hasAssignmentConflict');
+    $method->setAccessible(true);
+
+    expect($method->invoke(
+        new EloquentPlanningResultPersister,
+        $runId,
+        $periodId,
+        $resourceId,
+        CarbonImmutable::parse('2026-07-28 07:00:00'),
+        CarbonImmutable::parse('2026-07-28 19:00:00'),
+    ))->toBeTrue();
 });
 
 it('completes a planning job and writes valid assignments', function (): void {

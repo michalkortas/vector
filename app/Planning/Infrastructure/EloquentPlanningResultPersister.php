@@ -1054,7 +1054,7 @@ final class EloquentPlanningResultPersister
         $day = $startsAt->toDateString();
 
         $spreadWeight = (int) config('planning.weights.spread_partial_top_ups', 5000);
-        $repeatWeight = (int) config('planning.weights.avoid_same_resource_streaks', 20000);
+        $repeatWeight = (int) config('planning.weights.avoid_same_resource_streaks', 80000);
         $dayNightWeight = (int) config('planning.weights.even_nights', 3000);
 
         return $this->topUpSpreadPenalty($planningRunId, $planningPeriodId, $startsAt, 'contract_reassigned_full') * max(1, $spreadWeight)
@@ -1097,7 +1097,7 @@ final class EloquentPlanningResultPersister
     {
         $day = $startsAt->toDateString();
         $spreadWeight = (int) config('planning.weights.spread_partial_top_ups', 5000);
-        $repeatWeight = (int) config('planning.weights.avoid_same_resource_streaks', 20000);
+        $repeatWeight = (int) config('planning.weights.avoid_same_resource_streaks', 80000);
 
         return $this->topUpSpreadPenalty($planningRunId, $planningPeriodId, $startsAt, 'supplementary_nominal_top_up') * max(1, $spreadWeight)
             + $this->topUpCountForDay($planningRunId, $day) * $spreadWeight * 20
@@ -1388,10 +1388,10 @@ final class EloquentPlanningResultPersister
             if ($startsAt < $existingEnd && $existingStart < $endsAt) {
                 return true;
             }
-            if ($existingEnd < $startsAt && $existingEnd->diffInMinutes($startsAt, false) < $minRest) {
+            if ($existingEnd <= $startsAt && $existingEnd->diffInMinutes($startsAt, false) < $minRest) {
                 return true;
             }
-            if ($endsAt < $existingStart && $endsAt->diffInMinutes($existingStart, false) < $minRest) {
+            if ($endsAt <= $existingStart && $endsAt->diffInMinutes($existingStart, false) < $minRest) {
                 return true;
             }
         }

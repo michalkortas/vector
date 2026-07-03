@@ -57,6 +57,7 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
         }
 
         $genes = $this->reduceSameRowStreaks($problem, $candidatePool, $genes);
+        $genes = $this->reduceResourceDayStreaks($problem, $candidatePool, $genes);
         $genes = $this->enforceMonthlyNominalLimits($problem, $candidatePool, $genes);
 
         return new ScheduleChromosome($genes);
@@ -72,6 +73,54 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
 
             return [$deferA ? 1 : 0, $slotA] <=> [$deferB ? 1 : 0, $slotB];
         });
+
+        return $genes;
+    }
+
+    private function reduceResourceDayStreaks(PlanningProblem $problem, CandidatePool $pool, array $genes): array
+    {
+        for ($pass = 0; $pass < 2; $pass++) {
+            $changed = false;
+            foreach ($this->resourceDayAssignments($problem, $genes) as $assignments) {
+                $previous = null;
+                foreach ($assignments as $assignment) {
+                    if ($previous === null) {
+                        $previous = $assignment;
+
+                        continue;
+                    }
+
+                    $daysBetween = CarbonImmutable::parse($previous['slot']['starts_at'])
+                        ->startOfDay()
+                        ->diffInDays(CarbonImmutable::parse($assignment['slot']['starts_at'])->startOfDay());
+                    if ($daysBetween > 1) {
+                        $previous = $assignment;
+
+                        continue;
+                    }
+                    if ($daysBetween === 0 || array_key_exists($assignment['key'], $problem->lockedAssignments)) {
+                        $previous = $assignment;
+
+                        continue;
+                    }
+
+                    $used = $this->usedSlotsByResourceExcept($problem, $genes, $assignment['key']);
+                    $replacement = $this->firstCandidate($problem, $pool, $assignment['key'], $assignment['slot'], $used, [$assignment['resource_id']]);
+                    if ($replacement !== null) {
+                        $genes[$assignment['key']] = $replacement;
+                        $changed = true;
+
+                        continue;
+                    }
+
+                    $previous = $assignment;
+                }
+            }
+
+            if (! $changed) {
+                break;
+            }
+        }
 
         return $genes;
     }
@@ -176,6 +225,33 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
         }
 
         return $rows;
+    }
+
+    private function resourceDayAssignments(PlanningProblem $problem, array $genes): array
+    {
+        $byResource = [];
+        foreach ($genes as $key => $resourceId) {
+            if ($resourceId === null) {
+                continue;
+            }
+            [$slotId] = array_map('intval', explode(':', $key));
+            $slot = $problem->slot($slotId);
+            if ($slot === null) {
+                continue;
+            }
+
+            $byResource[$resourceId][] = [
+                'key' => $key,
+                'resource_id' => $resourceId,
+                'slot' => $slot,
+            ];
+        }
+
+        foreach ($byResource as &$assignments) {
+            usort($assignments, fn (array $a, array $b): int => strcmp($a['slot']['starts_at'], $b['slot']['starts_at']));
+        }
+
+        return $byResource;
     }
 
     private function enforceMonthlyNominalLimits(PlanningProblem $problem, CandidatePool $pool, array $genes): array

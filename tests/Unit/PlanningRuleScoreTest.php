@@ -258,6 +258,38 @@ it('repairs avoidable same row assignment streaks', function (): void {
         ->and($repaired->genes['2:1'])->toBe(2);
 });
 
+it('repairs avoidable resource work day streaks across different rows', function (): void {
+    $problem = new PlanningProblem(
+        periodId: 1,
+        startsOn: CarbonImmutable::parse('2026-07-01'),
+        endsOn: CarbonImmutable::parse('2026-07-31'),
+        monthlyNormMinutes: 10465,
+        quarterlyNormMinutes: 29570,
+        resources: [1 => ['id' => 1, 'is_active' => true, 'metadata' => []], 2 => ['id' => 2, 'is_active' => true, 'metadata' => []]],
+        skillsByResource: [],
+        planningUnits: [],
+        demandSlots: [
+            1 => ['id' => 1, 'planning_unit_id' => 10, 'shift_template_id' => 20, 'starts_at' => '2026-07-01 07:00:00', 'ends_at' => '2026-07-01 19:00:00', 'duration_minutes' => 720, 'required_resources_count' => 1, 'shift_code' => 'DAY_12H'],
+            2 => ['id' => 2, 'planning_unit_id' => 11, 'shift_template_id' => 21, 'starts_at' => '2026-07-02 07:00:00', 'ends_at' => '2026-07-02 19:00:00', 'duration_minutes' => 720, 'required_resources_count' => 1, 'shift_code' => 'DAY_12H'],
+        ],
+        requiredSkillsBySlot: [],
+        absences: [],
+        availabilityRules: [],
+        holidays: [],
+        limitsByResource: [],
+        unitRules: [],
+    );
+    $pool = new CandidatePool([
+        '1:1' => [['resource_id' => 1, 'usage_mode' => 'primary', 'penalty' => 0, 'priority' => 1], ['resource_id' => 2, 'usage_mode' => 'primary', 'penalty' => 0, 'priority' => 2]],
+        '2:1' => [['resource_id' => 1, 'usage_mode' => 'primary', 'penalty' => 0, 'priority' => 1], ['resource_id' => 2, 'usage_mode' => 'primary', 'penalty' => 0, 'priority' => 2]],
+    ]);
+
+    $repaired = (new DefaultScheduleRepairer)->repair($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1]), $pool);
+
+    expect($repaired->genes['1:1'])->toBe(1)
+        ->and($repaired->genes['2:1'])->toBe(2);
+});
+
 it('treats a day shift immediately after a night shift as a hard minimum rest violation', function (): void {
     $problem = new PlanningProblem(
         periodId: 1,
