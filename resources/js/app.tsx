@@ -56,7 +56,7 @@ const unitViews: Record<string, { label: string; short: string; badgeClass: stri
   },
   ward_manager: {
     label: 'Biuro',
-    short: 'BIO',
+    short: 'BIU',
     badgeClass: 'border-zinc-300 bg-zinc-100 text-zinc-900',
     cellClass: 'border-zinc-300 bg-zinc-100 text-zinc-900',
     rowClass: 'border-l-zinc-400',
@@ -125,7 +125,7 @@ function absenceCoversDay(absence: Absence, dayDate: string) {
 
 function employeeDayInfo(dayDate: string, employeeNumber: number, assignments: Assignment[], absences: Absence[]): EmployeeDayInfo {
   if (employeeNumber === null) {
-    return { type: 'off', label: 'dW', title: 'Dzień wolny' };
+    return { type: 'off', label: 'DW', title: 'Dzień wolny' };
   }
 
   const absence = absences.find((item) => item.employee_number === employeeNumber && absenceCoversDay(item, dayDate));
@@ -150,7 +150,7 @@ function employeeDayInfo(dayDate: string, employeeNumber: number, assignments: A
     };
   }
 
-  return { type: 'off', label: 'dW', title: 'Dzień wolny' };
+  return { type: 'off', label: 'DW', title: 'Dzień wolny' };
 }
 
 function violationDetails(violation: Violation) {
@@ -643,9 +643,9 @@ function VacationTable({ days, period, resources, absences }: { days: number[]; 
 function EmployeeDayCell({ info }: { info: EmployeeDayInfo }) {
   const color = info.type === 'work'
     ? (info.colorClass ?? 'border-emerald-300 bg-emerald-50 text-emerald-950')
-    : info.type === 'absence'
-      ? 'border-amber-300 bg-amber-50 text-amber-950'
-      : 'border-zinc-300 bg-zinc-100 text-zinc-600';
+      : info.type === 'absence'
+        ? 'border-amber-300 bg-amber-50 text-amber-950'
+        : 'border-zinc-300 bg-zinc-100 text-zinc-400';
 
   return (
     <td title={info.title} className={`border p-1 text-center text-[11px] font-semibold leading-tight ${color}`}>
