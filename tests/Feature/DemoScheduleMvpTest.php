@@ -95,11 +95,18 @@ it('renders the schedule page', function (): void {
     $this->get('/')->assertOk();
 
     $resources = $this->get('/')->inertiaProps('resources');
+    $scheduleRows = $this->get('/')->inertiaProps('scheduleRows');
     $resource5 = collect($resources)->firstWhere('employee_number', 5);
     $resource1 = collect($resources)->firstWhere('employee_number', 1);
 
     expect($resource5['planned_duties_note'])->toBe('7x12h + 1x6:35')
-        ->and($resource1['planned_duties_note'])->toBe('23x7:35');
+        ->and($resource1['planned_duties_note'])->toBe('23x7:35')
+        ->and(collect($scheduleRows)->pluck('unit_code')->unique()->sort()->values()->all())->toBe([
+            'delivery_room',
+            'newborns',
+            'senior_ward',
+            'ward_manager',
+        ]);
 });
 
 it('keeps demand slot identifiers stable when demo seed is rerun', function (): void {
@@ -209,13 +216,10 @@ it('separates demand coverage from technical top ups in the schedule payload', f
         ]);
     }
 
-    $layers = collect($this->get('/')->inertiaProps('assignments'))
-        ->sortBy('slot_position')
-        ->pluck('display_layer')
-        ->values()
-        ->all();
+    $payloadAssignments = collect($this->get('/')->inertiaProps('assignments'))->sortBy('slot_position')->values();
 
-    expect($layers)->toBe(['demand', 'resource_only', 'top_up']);
+    expect($payloadAssignments->pluck('display_layer')->all())->toBe(['demand', 'resource_only', 'top_up'])
+        ->and($payloadAssignments->pluck('unit_code')->unique()->values()->all())->toBe(['delivery_room']);
 });
 
 it('completes a planning job and writes valid assignments', function (): void {

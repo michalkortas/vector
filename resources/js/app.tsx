@@ -1,12 +1,12 @@
 import '../css/app.css';
 import { createInertiaApp, router, usePage } from '@inertiajs/react';
 import { createRoot } from 'react-dom/client';
-import { Activity, Lock, Play, RefreshCw, Unlock } from 'lucide-react';
+import { Activity, Lock, Moon, Play, RefreshCw, Sun, Unlock } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 
 type Period = { id: number; name: string; starts_on: string; ends_on: string; monthly_norm_minutes: number; quarterly_norm_minutes: number };
 type PlanningRun = { id: number; status: string; score_total: number | null; hard_violations_count: number; soft_violations_count: number; unassigned_slots_count: number; metadata?: { phase?: string; evaluated_candidates?: number; estimated_candidates?: number; completed_generations?: number; configured_generations?: number; configured_population_size?: number; progress_percent?: number; best_score?: number; stop_reason?: string; time_limit_seconds?: number } } | null;
-type Assignment = { id: number; demand_slot_id: number; resource_id: number | null; slot_position: number; segment_position: number; is_locked: boolean | number; source: string; display_layer: 'demand' | 'top_up' | 'resource_only'; metadata: { segment_kind?: string } | null; employee_number: number | null; resource_name: string | null; starts_at: string; ends_at: string; duration_minutes: number; slot_starts_at: string; unit_name: string; shift_code: string; shift_name: string };
+type Assignment = { id: number; demand_slot_id: number; resource_id: number | null; slot_position: number; segment_position: number; is_locked: boolean | number; source: string; display_layer: 'demand' | 'top_up' | 'resource_only'; metadata: { segment_kind?: string } | null; employee_number: number | null; resource_name: string | null; starts_at: string; ends_at: string; duration_minutes: number; slot_starts_at: string; unit_code: string; unit_name: string; shift_code: string; shift_name: string };
 type Resource = {
   id: number;
   employee_number: number;
@@ -29,7 +29,59 @@ type ScoreComponent = { id: number; code: string; label: string; score: number; 
 type PlanningRule = { code: string; name: string; type: string; is_active: boolean; can_toggle: boolean; weight: number };
 type Absence = { employee_number: number; resource_name: string; type_name: string; starts_at: string; ends_at: string };
 type Holiday = { holiday_date: string; name: string; scope: string; blocks_planning: boolean };
-type ScheduleRow = { shift_code: string; shift_name: string; unit_name: string };
+type ScheduleRow = { shift_code: string; shift_name: string; unit_code: string; unit_name: string };
+type EmployeeDayInfo = { type: 'work' | 'absence' | 'off'; label: string; title: string; colorClass?: string };
+
+const unitViews: Record<string, { label: string; short: string; badgeClass: string; cellClass: string; rowClass: string }> = {
+  delivery_room: {
+    label: 'Porodówka',
+    short: 'POR',
+    badgeClass: 'border-rose-300 bg-rose-50 text-rose-950',
+    cellClass: 'border-rose-300 bg-rose-50 text-rose-950',
+    rowClass: 'border-l-rose-400',
+  },
+  senior_ward: {
+    label: 'Oddział',
+    short: 'ODD',
+    badgeClass: 'border-emerald-300 bg-emerald-50 text-emerald-950',
+    cellClass: 'border-emerald-300 bg-emerald-50 text-emerald-950',
+    rowClass: 'border-l-emerald-400',
+  },
+  newborns: {
+    label: 'Noworodki',
+    short: 'NOW',
+    badgeClass: 'border-sky-300 bg-sky-50 text-sky-950',
+    cellClass: 'border-sky-300 bg-sky-50 text-sky-950',
+    rowClass: 'border-l-sky-400',
+  },
+  ward_manager: {
+    label: 'Biuro',
+    short: 'BIO',
+    badgeClass: 'border-zinc-300 bg-zinc-100 text-zinc-900',
+    cellClass: 'border-zinc-300 bg-zinc-100 text-zinc-900',
+    rowClass: 'border-l-zinc-400',
+  },
+};
+
+function unitView(code: string | undefined, fallback: string) {
+  if (code && unitViews[code]) {
+    return unitViews[code];
+  }
+
+  return {
+    label: fallback,
+    short: fallback.slice(0, 3).toUpperCase(),
+    badgeClass: 'border-zinc-300 bg-zinc-50 text-zinc-900',
+    cellClass: 'border-zinc-300 bg-zinc-50 text-zinc-900',
+    rowClass: 'border-l-zinc-300',
+  };
+}
+
+function shiftIcon(code: string) {
+  return code === 'NIGHT_12H'
+    ? <Moon size={14} className="text-indigo-700" />
+    : <Sun size={14} className="text-amber-600" />;
+}
 
 function minutes(value: number | null | undefined) {
   if (!value) return '-';
@@ -67,12 +119,16 @@ function stopReasonLabel(run: PlanningRun) {
   return '-';
 }
 
-function selectedDayInfo(dayDate: string, employeeNumber: number | null, assignments: Assignment[], absences: Absence[]) {
+function absenceCoversDay(absence: Absence, dayDate: string) {
+  return dayDate >= dateOnly(absence.starts_at) && dayDate < dateOnly(absence.ends_at);
+}
+
+function employeeDayInfo(dayDate: string, employeeNumber: number, assignments: Assignment[], absences: Absence[]): EmployeeDayInfo {
   if (employeeNumber === null) {
     return { type: 'off', label: 'dW', title: 'Dzień wolny' };
   }
 
-  const absence = absences.find((item) => item.employee_number === employeeNumber && dayDate >= dateOnly(item.starts_at) && dayDate < dateOnly(item.ends_at));
+  const absence = absences.find((item) => item.employee_number === employeeNumber && absenceCoversDay(item, dayDate));
   if (absence) {
     return {
       type: 'absence',
@@ -83,10 +139,14 @@ function selectedDayInfo(dayDate: string, employeeNumber: number | null, assignm
 
   const work = assignments.filter((assignment) => assignment.employee_number === employeeNumber && dateOnly(assignment.starts_at) === dayDate);
   if (work.length > 0) {
+    const units = Array.from(new Map(work.map((assignment) => [assignment.unit_code, unitView(assignment.unit_code, assignment.unit_name)])).values());
+    const colorClass = units.length === 1 ? units[0].cellClass : 'border-violet-300 bg-violet-50 text-violet-950';
+
     return {
       type: 'work',
-      label: Array.from(new Set(work.map((assignment) => assignment.unit_name))).join(' / '),
-      title: work.map((assignment) => `${assignment.shift_name}: ${assignment.unit_name}`).join(', '),
+      label: units.map((unit) => unit.short).join(' / '),
+      title: work.map((assignment) => `${assignment.shift_name}: ${unitView(assignment.unit_code, assignment.unit_name).label}`).join(', '),
+      colorClass,
     };
   }
 
@@ -136,9 +196,11 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
   const isGenerating = props.latestRun?.status === 'queued' || props.latestRun?.status === 'running';
   const shouldPoll = isGenerating || isSubmittingGeneration || isWaitingForRunRefresh;
   const progressPercent = props.latestRun?.metadata?.progress_percent ?? (props.latestRun?.status === 'completed' ? 100 : 0);
-  const highlightedResource = props.resources.find((resource) => resource.employee_number === highlightedEmployeeNumber) ?? null;
   const days = Array.from({ length: 31 }, (_, index) => index + 1);
   const holidayDays = new Set(props.holidays.filter((holiday) => holiday.blocks_planning).map((holiday) => dayOfMonth(holiday.holiday_date)));
+  const vacationAbsences = props.absences.filter((absence) => absence.type_name.toLowerCase().includes('urlop'));
+  const vacationEmployeeNumbers = new Set(vacationAbsences.map((absence) => absence.employee_number));
+  const resourcesWithVacations = props.resources.filter((resource) => vacationEmployeeNumbers.has(resource.employee_number));
   const byCell = new Map<string, Assignment[]>();
   const topUpByCell = new Map<string, Assignment[]>();
   const topUpRows = new Set<string>();
@@ -148,11 +210,11 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
     }
 
     const day = new Date(assignment.slot_starts_at).getDate();
-    const key = `${assignment.shift_code}:${assignment.unit_name}:${day}`;
+    const key = `${assignment.shift_code}:${assignment.unit_code}:${day}`;
     const target = assignment.display_layer === 'top_up' ? topUpByCell : byCell;
     target.set(key, [...(target.get(key) ?? []), assignment].sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.segment_position - b.segment_position));
     if (assignment.display_layer === 'top_up') {
-      topUpRows.add(`${assignment.shift_code}:${assignment.unit_name}`);
+      topUpRows.add(`${assignment.shift_code}:${assignment.unit_code}`);
     }
   }
   const violationKeys = new Set<string>();
@@ -255,6 +317,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
           </div>
         </section>
 
+        <SectionHeader title="Grafik działowy" />
         <div className="overflow-x-auto border border-zinc-300 bg-white">
           <table className="w-full min-w-[1600px] table-fixed border-collapse text-xs">
             <colgroup>
@@ -270,16 +333,16 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
             <tbody>
               {props.scheduleRows.map((row) => {
                 const shiftCode = row.shift_code;
-                const unitName = row.unit_name;
-                const rowKey = `${shiftCode}:${unitName}`;
+                const unit = unitView(row.unit_code, row.unit_name);
+                const rowKey = `${shiftCode}:${row.unit_code}`;
                 const hasTopUpRow = topUpRows.has(rowKey);
                 return (
                   <Fragment key={rowKey}>
                     {hasTopUpRow && (
                       <tr className="border-t-2 border-t-emerald-200">
-                        <th className="sticky left-0 z-10 border border-emerald-200 bg-emerald-50 p-2 text-left font-medium text-emerald-950">dopełnienie {unitName}</th>
+                        <th className={`sticky left-0 z-10 border border-emerald-200 bg-emerald-50 p-2 text-left font-medium text-emerald-950 ${unit.rowClass}`}>dopełnienie {unit.label}</th>
                         {days.map((day) => {
-                          const cellAssignments = topUpByCell.get(`${shiftCode}:${unitName}:${day}`) ?? [];
+                          const cellAssignments = topUpByCell.get(`${shiftCode}:${row.unit_code}:${day}`) ?? [];
                           const primaryAssignment = cellAssignments[0];
                           const hasViolation = primaryAssignment ? (
                             violationKeys.has(`slot:${primaryAssignment.demand_slot_id}`)
@@ -303,9 +366,13 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
                       </tr>
                     )}
                     <tr>
-                      <th className="sticky left-0 z-10 border border-zinc-300 bg-white p-2 text-left font-medium">{shiftCode}<br /><span className="font-normal text-zinc-600">{unitName}</span></th>
+                      <th className={`sticky left-0 z-10 border border-zinc-300 border-l-4 bg-white p-2 text-left font-medium ${unit.rowClass}`}>
+                        <span className="flex items-center gap-2">{shiftIcon(shiftCode)}{shiftCode}</span>
+                        <span className={`mt-1 inline-flex rounded-sm border px-1.5 py-0.5 text-[11px] font-semibold ${unit.badgeClass}`}>{unit.short}</span>
+                        <span className="ml-2 font-normal text-zinc-600">{unit.label}</span>
+                      </th>
                       {days.map((day) => {
-                        const cellAssignments = byCell.get(`${shiftCode}:${unitName}:${day}`) ?? [];
+                        const cellAssignments = byCell.get(`${shiftCode}:${row.unit_code}:${day}`) ?? [];
                         const primaryAssignment = cellAssignments[0];
                         const hasViolation = primaryAssignment ? (
                           violationKeys.has(`slot:${primaryAssignment.demand_slot_id}`)
@@ -329,21 +396,28 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
                   </Fragment>
                 );
               })}
-              <tr className="border-t-4 border-t-zinc-900">
-                <th className="sticky left-0 z-10 border border-zinc-300 bg-zinc-900 p-2 text-left font-medium text-white">
-                  Wybrany zasób<br />
-                  <span className="font-normal text-zinc-200">{highlightedResource ? `${highlightedResource.employee_number}. ${highlightedResource.name}` : 'Brak'}</span>
-                </th>
-                {days.map((day) => (
-                  <SelectedEmployeeDayCell
-                    key={day}
-                    info={selectedDayInfo(dateForDay(props.period, day), highlightedEmployeeNumber, props.assignments, props.absences)}
-                  />
-                ))}
-              </tr>
             </tbody>
           </table>
         </div>
+
+        <SectionHeader title="Grafik pracowników" />
+        <EmployeeScheduleTable
+          days={days}
+          period={props.period}
+          resources={props.resources}
+          assignments={props.assignments}
+          absences={props.absences}
+          highlightedEmployeeNumber={highlightedEmployeeNumber}
+          onHighlight={setHighlightedEmployeeNumber}
+        />
+
+        <SectionHeader title="Urlopy" />
+        <VacationTable
+          days={days}
+          period={props.period}
+          resources={resourcesWithVacations}
+          absences={vacationAbsences}
+        />
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_420px]">
           <section className="bg-white p-4 ring-1 ring-zinc-200">
@@ -480,15 +554,101 @@ function PlanningRuleRow({ rule }: { rule: PlanningRule }) {
   );
 }
 
-function SelectedEmployeeDayCell({ info }: { info: { type: string; label: string; title: string } }) {
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div className="mt-6 mb-3 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+      <div className="h-px bg-zinc-200" />
+      <h3 className="rounded-sm border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold uppercase text-zinc-800 shadow-sm">{title}</h3>
+      <div className="h-px bg-zinc-200" />
+    </div>
+  );
+}
+
+function EmployeeScheduleTable({ days, period, resources, assignments, absences, highlightedEmployeeNumber, onHighlight }: { days: number[]; period: Period | null; resources: Resource[]; assignments: Assignment[]; absences: Absence[]; highlightedEmployeeNumber: number | null; onHighlight: (employeeNumber: number) => void }) {
+  return (
+    <div className="overflow-x-auto border border-zinc-300 bg-white">
+      <table className="w-full min-w-[1600px] table-fixed border-collapse text-xs">
+        <colgroup>
+          <col className="w-56" />
+          {days.map((day) => <col key={day} />)}
+        </colgroup>
+        <thead>
+          <tr>
+            <th className="sticky left-0 z-10 border border-zinc-300 bg-zinc-50 p-2 text-left">Zasób</th>
+            {days.map((day) => <th key={day} className="border border-zinc-300 bg-zinc-50 p-2 text-center">{day}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {resources.map((resource) => (
+            <tr key={resource.id}>
+              <th className={`sticky left-0 z-10 border border-zinc-300 p-2 text-left font-medium ${highlightedEmployeeNumber === resource.employee_number ? 'bg-fuchsia-50 text-fuchsia-950' : 'bg-white'}`}>
+                <button type="button" onClick={() => onHighlight(resource.employee_number)} className="block w-full text-left">
+                  {resource.employee_number}. {resource.name}
+                </button>
+              </th>
+              {days.map((day) => (
+                <EmployeeDayCell
+                  key={day}
+                  info={employeeDayInfo(dateForDay(period, day), resource.employee_number, assignments, absences)}
+                />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function VacationTable({ days, period, resources, absences }: { days: number[]; period: Period | null; resources: Resource[]; absences: Absence[] }) {
+  return (
+    <div className="overflow-x-auto border border-zinc-300 bg-white">
+      <table className="w-full min-w-[1600px] table-fixed border-collapse text-xs">
+        <colgroup>
+          <col className="w-56" />
+          {days.map((day) => <col key={day} />)}
+        </colgroup>
+        <thead>
+          <tr>
+            <th className="sticky left-0 z-10 border border-zinc-300 bg-zinc-50 p-2 text-left">Zasób</th>
+            {days.map((day) => <th key={day} className="border border-zinc-300 bg-zinc-50 p-2 text-center">{day}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {resources.length === 0 ? (
+            <tr>
+              <td colSpan={days.length + 1} className="border border-zinc-300 p-3 text-center text-zinc-500">Brak urlopów w okresie.</td>
+            </tr>
+          ) : resources.map((resource) => (
+            <tr key={resource.id}>
+              <th className="sticky left-0 z-10 border border-zinc-300 bg-white p-2 text-left font-medium">{resource.employee_number}. {resource.name}</th>
+              {days.map((day) => {
+                const dayDate = dateForDay(period, day);
+                const absence = absences.find((item) => item.employee_number === resource.employee_number && absenceCoversDay(item, dayDate));
+
+                return (
+                  <td key={day} title={absence?.type_name ?? ''} className="border border-zinc-300 bg-zinc-50 p-1 text-center">
+                    {absence && <span className="inline-flex min-h-7 w-full items-center justify-center rounded-sm border border-amber-300 bg-amber-50 px-1 text-[11px] font-semibold text-amber-950">Urlop</span>}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EmployeeDayCell({ info }: { info: EmployeeDayInfo }) {
   const color = info.type === 'work'
-    ? 'border-emerald-300 bg-emerald-50 text-emerald-950'
+    ? (info.colorClass ?? 'border-emerald-300 bg-emerald-50 text-emerald-950')
     : info.type === 'absence'
       ? 'border-amber-300 bg-amber-50 text-amber-950'
       : 'border-zinc-300 bg-zinc-100 text-zinc-600';
 
   return (
-    <td title={info.title} className={`border border-t-zinc-900 p-1 text-center text-[11px] font-semibold leading-tight ${color}`}>
+    <td title={info.title} className={`border p-1 text-center text-[11px] font-semibold leading-tight ${color}`}>
       <span className="block max-w-14 truncate">{info.label}</span>
     </td>
   );

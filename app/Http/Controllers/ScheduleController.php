@@ -46,6 +46,7 @@ final class ScheduleController extends Controller
                     DB::raw('coalesce(assignments.ends_at, demand_slots.ends_at) as ends_at'),
                     DB::raw('coalesce(assignments.duration_minutes, demand_slots.duration_minutes) as duration_minutes'),
                     'demand_slots.starts_at as slot_starts_at',
+                    'planning_units.code as unit_code',
                     'planning_units.name as unit_name',
                     'shift_templates.code as shift_code',
                     'shift_templates.name as shift_name',
@@ -118,8 +119,8 @@ final class ScheduleController extends Controller
                 ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
                 ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
                 ->where('demand_slots.planning_period_id', $period->id)
-                ->selectRaw('min(demand_slots.starts_at) as first_starts_at, min(shift_templates.id) as shift_order, min(planning_units.id) as unit_order, shift_templates.code as shift_code, shift_templates.name as shift_name, planning_units.name as unit_name')
-                ->groupBy('shift_templates.code', 'shift_templates.name', 'planning_units.name')
+                ->selectRaw('min(demand_slots.starts_at) as first_starts_at, min(shift_templates.id) as shift_order, min(planning_units.id) as unit_order, shift_templates.code as shift_code, shift_templates.name as shift_name, planning_units.code as unit_code, planning_units.name as unit_name')
+                ->groupBy('shift_templates.code', 'shift_templates.name', 'planning_units.code', 'planning_units.name')
                 ->orderByRaw('min(demand_slots.starts_at)')
                 ->orderBy('shift_order')
                 ->orderBy('unit_order')
