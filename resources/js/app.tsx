@@ -30,7 +30,7 @@ type PlanningRule = { code: string; name: string; description: string; type: str
 type Absence = { employee_number: number; resource_name: string; type_name: string; starts_at: string; ends_at: string };
 type Holiday = { holiday_date: string; name: string; scope: string; blocks_planning: boolean };
 type ScheduleRow = { shift_code: string; shift_name: string; unit_code: string; unit_name: string };
-type EmployeeDayInfo = { type: 'work' | 'absence' | 'off'; label: string; title: string; colorClass?: string };
+type EmployeeDayInfo = { type: 'work' | 'absence' | 'off'; label: string; title: string; colorClass?: string; shiftCodes?: string[] };
 
 const unitViews: Record<string, { label: string; short: string; badgeClass: string; cellClass: string; rowClass: string }> = {
   delivery_room: {
@@ -170,9 +170,12 @@ function employeeDayInfo(dayDate: string, employeeNumber: number, assignments: A
     };
   }
 
-  const work = assignments.filter((assignment) => assignment.employee_number === employeeNumber && dateOnly(assignment.starts_at) === dayDate);
+  const work = assignments
+    .filter((assignment) => assignment.employee_number === employeeNumber && dateOnly(assignment.starts_at) === dayDate)
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   if (work.length > 0) {
     const units = Array.from(new Map(work.map((assignment) => [assignment.unit_code, unitView(assignment.unit_code, assignment.unit_name)])).values());
+    const shiftCodes = Array.from(new Set(work.map((assignment) => assignment.shift_code)));
     const colorClass = units.length === 1 ? units[0].cellClass : 'border-violet-300 bg-violet-50 text-violet-950';
 
     return {
@@ -180,6 +183,7 @@ function employeeDayInfo(dayDate: string, employeeNumber: number, assignments: A
       label: units.map((unit) => unit.short).join(' / '),
       title: work.map((assignment) => `${assignment.shift_name}: ${unitView(assignment.unit_code, assignment.unit_name).label}`).join(', '),
       colorClass,
+      shiftCodes,
     };
   }
 
@@ -683,6 +687,11 @@ function EmployeeDayCell({ info }: { info: EmployeeDayInfo }) {
 
   return (
     <td title={info.title} className={`border p-1 text-center text-[11px] font-semibold leading-tight ${color}`}>
+      {info.type === 'work' && info.shiftCodes && (
+        <span className="mb-0.5 flex justify-center gap-1">
+          {info.shiftCodes.map((shiftCode) => <span key={shiftCode}>{shiftIcon(shiftCode)}</span>)}
+        </span>
+      )}
       <span className="block max-w-14 truncate">{info.label}</span>
     </td>
   );
