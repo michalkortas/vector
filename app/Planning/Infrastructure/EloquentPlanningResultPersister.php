@@ -166,10 +166,12 @@ final class EloquentPlanningResultPersister
             ->where('assignments.resource_id', '<>', $flexResourceId)
             ->where('assignments.duration_minutes', '>=', $this->minimumEmployeeSegmentMinutes() * 2)
             ->when($this->flexResourcePrimaryUnitIds($flexResourceId) !== [], fn ($query) => $query->whereNotIn('planning_units.id', $this->flexResourcePrimaryUnitIds($flexResourceId)))
+            ->when($this->flexResourceAllowedUnitCodes($flexResourceId) !== [], fn ($query) => $query->whereIn('planning_units.code', $this->flexResourceAllowedUnitCodes($flexResourceId)))
             ->get([
                 'assignments.*',
                 'resources.metadata as resource_metadata',
                 'shift_templates.code as shift_code',
+                'planning_units.code as unit_code',
                 'demand_slots.starts_at as slot_starts_at',
                 'demand_slots.ends_at as slot_ends_at',
                 'demand_slots.duration_minutes as slot_duration_minutes',
@@ -270,6 +272,10 @@ final class EloquentPlanningResultPersister
         if (! in_array((string) ($assignment->shift_code ?? ''), $this->flexResourceAllowedShiftCodes($flexResourceId), true)) {
             return false;
         }
+        $allowedUnitCodes = $this->flexResourceAllowedUnitCodes($flexResourceId);
+        if ($allowedUnitCodes !== [] && ! in_array((string) ($assignment->unit_code ?? ''), $allowedUnitCodes, true)) {
+            return false;
+        }
         if ($employeeMinutes < $this->minimumEmployeeSegmentMinutes() || $employeeMinutes >= (int) $assignment->duration_minutes) {
             return false;
         }
@@ -367,6 +373,13 @@ final class EloquentPlanningResultPersister
     private function flexResourceAllowedShiftCodes(int $flexResourceId): array
     {
         $codes = $this->flexResourcePolicy($flexResourceId)['allowed_shift_codes'] ?? [];
+
+        return $this->stringList($codes);
+    }
+
+    private function flexResourceAllowedUnitCodes(int $flexResourceId): array
+    {
+        $codes = $this->flexResourcePolicy($flexResourceId)['allowed_unit_codes'] ?? [];
 
         return $this->stringList($codes);
     }
@@ -704,6 +717,7 @@ final class EloquentPlanningResultPersister
             ->where('assignments.duration_minutes', '>', $this->minimumEmployeeSegmentMinutes())
             ->whereIn('shift_templates.code', $this->flexResourceAllowedShiftCodes($flexResourceId))
             ->when($primaryUnitIds !== [], fn ($query) => $query->whereNotIn('planning_units.id', $primaryUnitIds))
+            ->when($this->flexResourceAllowedUnitCodes($flexResourceId) !== [], fn ($query) => $query->whereIn('planning_units.code', $this->flexResourceAllowedUnitCodes($flexResourceId)))
             ->get([
                 'assignments.*',
                 'resources.metadata as resource_metadata',

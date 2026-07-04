@@ -35,6 +35,7 @@ it('loads demo image data and per resource limits from json source', function ()
     $spreadRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'spread_partial_top_ups')->value('metadata'), true);
     $wardManagerRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'flex_resource_one_split_per_day')->value('metadata'), true);
     $shiftBalanceRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'shift_balance')->value('metadata'), true);
+    $substitutionPolicyMetadata = json_decode(DB::table('resource_substitution_policies')->where('resource_id', $resource1Id)->value('metadata'), true);
     $resource5VacationMinutes = DB::table('absences')->where('resource_id', $resource5Id)->sum('nominal_minutes');
     $resource12Id = DB::table('resources')->where('employee_number', 12)->value('id');
 
@@ -76,6 +77,9 @@ it('loads demo image data and per resource limits from json source', function ()
         ->and($wardManagerRuleMetadata['max_prefixes_per_period'])->toBe(4)
         ->and($wardManagerRuleMetadata['prefix_minutes'])->toBe(335)
         ->and($wardManagerRuleMetadata['allowed_shift_codes'])->toBe(['DAY_12H'])
+        ->and($substitutionPolicyMetadata['allowed_unit_codes'])->toBe(['senior_ward'])
+        ->and($substitutionPolicyMetadata['self_top_up_allowed_unit_codes'])->toBe(['senior_ward'])
+        ->and($substitutionPolicyMetadata['self_top_up_allowed_shift_codes'])->toBe(['DAY_12H'])
         ->and((bool) DB::table('planning_rule_settings')->where('code', 'flex_resource_one_split_per_day')->value('can_toggle'))->toBeFalse()
         ->and(json_decode(DB::table('shift_templates')->where('code', 'DAY_12H')->value('metadata'), true)['balance_group'])->toBe('day')
         ->and(json_decode(DB::table('shift_templates')->where('code', 'NIGHT_12H')->value('metadata'), true)['balance_group'])->toBe('night')
@@ -401,6 +405,22 @@ it('completes a planning job and writes valid assignments', function (): void {
         })
         ->where('shift_templates.code', '<>', 'DAY_12H')
         ->count();
+    $wardManagerTopUpsOutsideSeniorWardDay = DB::table('assignments')
+        ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
+        ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
+        ->where('assignments.planning_run_id', $runId)
+        ->where('assignments.resource_id', $wardManagerId)
+        ->where(function ($query): void {
+            $query->where('assignments.metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
+                ->orWhere('assignments.metadata', 'like', '%"segment_kind":"flex_resource_contract_split_prefix"%')
+                ->orWhere('assignments.metadata', 'like', '%"segment_kind":"supplementary_nominal_top_up"%');
+        })
+        ->where(function ($query): void {
+            $query->where('planning_units.code', '<>', 'senior_ward')
+                ->orWhere('shift_templates.code', '<>', 'DAY_12H');
+        })
+        ->count();
     $wardManagerTopUps = DB::table('assignments')
         ->where('assignments.planning_run_id', $runId)
         ->where('assignments.resource_id', $wardManagerId)
@@ -523,6 +543,7 @@ it('completes a planning job and writes valid assignments', function (): void {
         ->and($maxWardManagerSplitsPerDay)->toBeLessThanOrEqual(1)
         ->and($maxNominalTailsPerDemandSlot)->toBeLessThanOrEqual(1)
         ->and($wardManagerNightTopUps)->toBe(0)
+        ->and($wardManagerTopUpsOutsideSeniorWardDay)->toBe(0)
         ->and($wardManagerTopUpsMissingSkills)->toBe(0)
         ->and($releasedWardManagerPrimaryAssignments)->toBe(0)
         ->and($wardManagerAssignmentsByOtherResources)->toBe(0)
@@ -638,7 +659,7 @@ it('excludes ward manager weekends from candidate pools', function (): void {
     }
 });
 
-it('allows ward manager to prefix a non senior day slot when another senior covers the group', function (): void {
+it('limits flex resource prefixes to units allowed by the resource policy', function (): void {
     $this->seed();
 
     $periodId = (int) DB::table('planning_periods')->where('starts_on', '2026-07-01')->value('id');
@@ -701,7 +722,9 @@ it('allows ward manager to prefix a non senior day slot when another senior cove
     $method->setAccessible(true);
     $candidates = collect($method->invoke($persister, $runId, $wardManagerId));
 
-    expect($candidates->pluck('demand_slot_id')->all())->toContain($deliverySlot->id);
+    expect($candidates->pluck('demand_slot_id')->all())
+        ->not->toContain($deliverySlot->id)
+        ->and($candidates->pluck('demand_slot_id')->all())->toContain($seniorWardSlot->id);
 });
 
 it('splits a contract day shift between an underfilled employee and ward manager prefix', function (): void {
@@ -772,10 +795,12 @@ it('splits a contract day shift between an underfilled employee and ward manager
     $assignment = DB::table('assignments')
         ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
         ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
         ->where('assignments.id', $assignmentId)
         ->first([
             'assignments.*',
             'shift_templates.code as shift_code',
+            'planning_units.code as unit_code',
             'demand_slots.starts_at as slot_starts_at',
             'demand_slots.ends_at as slot_ends_at',
             'demand_slots.metadata as slot_metadata',
