@@ -134,6 +134,7 @@ const technicalCodeLabels: Record<string, string> = {
   availability_conflict: 'Kolizja z dostępnością',
   holiday_conflict: 'Kolizja ze świętem',
   overlap: 'Nakładające się zmiany',
+  excluded_resource: 'Zasób wykluczony z obszaru',
   min_rest_violation: 'Za krótki odpoczynek',
   daily_limit_exceeded: 'Przekroczony limit dzienny',
   nominal_limit_exceeded: 'Przekroczony nominał etatu',

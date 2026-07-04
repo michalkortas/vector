@@ -130,6 +130,9 @@ final class DemoScheduleFromImageSeeder extends Seeder
             $plannedDutiesMinutes = $this->parseDurationExpressionMinutes($plannedDutiesExpression);
             $workloadPolicy = $employee['workload_policy'] ?? 'must_fill_nominal';
             $employmentFraction = (float) ($employee['employment_fraction'] ?? 1);
+            $policyGroupCode = $data['planning_unit_resource_policy']['resource_policy_group_codes_by_employee_number'][(string) $employee['employee_number']]
+                ?? $employee['resource_policy_group_code']
+                ?? null;
             DB::table('resources')->updateOrInsert(
                 ['employee_number' => $employee['employee_number']],
                 [
@@ -146,6 +149,7 @@ final class DemoScheduleFromImageSeeder extends Seeder
                         'employment_type' => $employee['employment_type'] ?? 'employment',
                         'employment_fraction' => $workloadPolicy === 'minimize_usage' ? null : $employmentFraction,
                         'workload_policy' => $workloadPolicy,
+                        'policy_group_code' => $policyGroupCode,
                     ]),
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -326,9 +330,10 @@ final class DemoScheduleFromImageSeeder extends Seeder
     {
         DB::table('planning_unit_resource_rules')->delete();
 
-        $fallbackEmployees = $data['planning_unit_resource_policy']['fallback_employee_numbers'];
-        $primaryUnitsByEmployee = $data['planning_unit_resource_policy']['primary_unit_codes_by_employee_number'] ?? [];
-        $primaryShiftsByEmployee = $data['planning_unit_resource_policy']['primary_shift_codes_by_employee_number'] ?? [];
+        $policy = $data['planning_unit_resource_policy'];
+        $fallbackEmployees = $policy['fallback_employee_numbers'] ?? [];
+        $primaryUnitsByEmployee = $policy['primary_unit_codes_by_employee_number'] ?? [];
+        $primaryShiftsByEmployee = $policy['primary_shift_codes_by_employee_number'] ?? [];
         $ruleSlots = collect($data['demand_generation'])
             ->map(fn (array $definition): array => [
                 'unit_code' => $definition['planning_unit_code'],
@@ -343,26 +348,155 @@ final class DemoScheduleFromImageSeeder extends Seeder
             $unitId = $unitIds[$unitCode];
             $shiftId = $shiftIds[$shiftCode];
             foreach ($resourceIds as $employeeNumber => $resourceId) {
-                $primaryUnits = $primaryUnitsByEmployee[(string) $employeeNumber] ?? [];
-                $primaryShifts = $primaryShiftsByEmployee[(string) $employeeNumber] ?? null;
                 $employee = collect($data['employees'])->firstWhere('employee_number', $employeeNumber);
-                $isFallbackEmployee = in_array($employeeNumber, $fallbackEmployees, true) || (($employee['workload_policy'] ?? 'must_fill_nominal') === 'minimize_usage');
-                $isPrimarySlot = in_array($unitCode, $primaryUnits, true) && ($primaryShifts === null || in_array($shiftCode, $primaryShifts, true));
-                $usageMode = $isFallbackEmployee && ! $isPrimarySlot ? 'fallback' : 'primary';
+                $resourcePolicy = $this->resourcePolicyForSlot(
+                    $policy,
+                    (int) $employeeNumber,
+                    $employee,
+                    $unitCode,
+                    $shiftCode,
+                    $fallbackEmployees,
+                    $primaryUnitsByEmployee,
+                    $primaryShiftsByEmployee,
+                );
                 DB::table('planning_unit_resource_rules')->insert([
                     'planning_unit_id' => $unitId,
                     'shift_template_id' => $shiftId,
                     'resource_id' => $resourceId,
-                    'usage_mode' => $usageMode,
-                    'priority' => $usageMode === 'fallback' ? 900 : 100,
-                    'penalty' => $usageMode === 'fallback' ? $data['planning_unit_resource_policy']['fallback_penalty'] : 0,
-                    'max_assignments_per_period' => $usageMode === 'fallback' ? $data['planning_unit_resource_policy']['fallback_max_assignments_per_period'] : null,
-                    'metadata' => json_encode(['source' => 'demo', 'unit_code' => $unitCode, 'shift_code' => $shiftCode]),
+                    'usage_mode' => $resourcePolicy['usage_mode'],
+                    'priority' => $resourcePolicy['priority'],
+                    'penalty' => $resourcePolicy['penalty'],
+                    'max_assignments_per_period' => $resourcePolicy['max_assignments_per_period'],
+                    'metadata' => json_encode([
+                        'source' => 'demo',
+                        'unit_code' => $unitCode,
+                        'shift_code' => $shiftCode,
+                        ...$resourcePolicy['metadata'],
+                    ]),
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
             }
         }
+    }
+
+    private function resourcePolicyForSlot(array $policy, int $employeeNumber, ?array $employee, string $unitCode, string $shiftCode, array $fallbackEmployees, array $primaryUnitsByEmployee, array $primaryShiftsByEmployee): array
+    {
+        $unitGroupCode = $policy['planning_unit_group_codes_by_unit_code'][$unitCode] ?? $unitCode;
+        $policyGroupCode = $policy['resource_policy_group_codes_by_employee_number'][(string) $employeeNumber]
+            ?? $employee['resource_policy_group_code']
+            ?? null;
+        $policyGroup = $policyGroupCode ? ($policy['resource_policy_groups'][$policyGroupCode] ?? null) : null;
+
+        if (is_array($policyGroup)) {
+            foreach ($policyGroup['rules'] ?? [] as $rule) {
+                if (! $this->policyRuleMatchesSlot($rule, $unitCode, $unitGroupCode, $shiftCode)) {
+                    continue;
+                }
+
+                return $this->policyRuleDefaults(
+                    $rule['usage_mode'] ?? ($policyGroup['default_usage_mode'] ?? 'primary'),
+                    $policy,
+                    [
+                        'priority' => $rule['priority'] ?? null,
+                        'penalty' => $rule['penalty'] ?? null,
+                        'max_assignments_per_period' => $rule['max_assignments_per_period'] ?? null,
+                        'metadata' => [
+                            'policy_group_code' => $policyGroupCode,
+                            'planning_unit_group_code' => $unitGroupCode,
+                            'policy_source' => 'resource_policy_group_rule',
+                        ],
+                    ],
+                );
+            }
+
+            return $this->policyRuleDefaults(
+                $policyGroup['default_usage_mode'] ?? 'primary',
+                $policy,
+                [
+                    'priority' => $policyGroup['default_priority'] ?? null,
+                    'penalty' => $policyGroup['default_penalty'] ?? null,
+                    'max_assignments_per_period' => $policyGroup['default_max_assignments_per_period'] ?? null,
+                    'metadata' => [
+                        'policy_group_code' => $policyGroupCode,
+                        'planning_unit_group_code' => $unitGroupCode,
+                        'policy_source' => 'resource_policy_group_default',
+                    ],
+                ],
+            );
+        }
+
+        $primaryUnits = $primaryUnitsByEmployee[(string) $employeeNumber] ?? [];
+        $primaryShifts = $primaryShiftsByEmployee[(string) $employeeNumber] ?? null;
+        $isFallbackEmployee = in_array($employeeNumber, $fallbackEmployees, true) || (($employee['workload_policy'] ?? 'must_fill_nominal') === 'minimize_usage');
+        $isPrimarySlot = in_array($unitCode, $primaryUnits, true) && ($primaryShifts === null || in_array($shiftCode, $primaryShifts, true));
+        $usageMode = $isFallbackEmployee && ! $isPrimarySlot ? 'fallback' : 'primary';
+
+        return $this->policyRuleDefaults($usageMode, $policy, [
+            'metadata' => [
+                'planning_unit_group_code' => $unitGroupCode,
+                'policy_source' => 'legacy_employee_policy',
+            ],
+        ]);
+    }
+
+    private function policyRuleMatchesSlot(array $rule, string $unitCode, string $unitGroupCode, string $shiftCode): bool
+    {
+        $unitCodes = $rule['planning_unit_codes'] ?? null;
+        if (is_array($unitCodes) && ! in_array($unitCode, $unitCodes, true)) {
+            return false;
+        }
+
+        $unitGroupCodes = $rule['planning_unit_group_codes'] ?? null;
+        if (is_array($unitGroupCodes) && ! in_array($unitGroupCode, $unitGroupCodes, true)) {
+            return false;
+        }
+
+        $shiftCodes = $rule['shift_codes'] ?? null;
+        if (is_array($shiftCodes) && ! in_array($shiftCode, $shiftCodes, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function policyRuleDefaults(string $usageMode, array $policy, array $overrides = []): array
+    {
+        $defaults = match ($usageMode) {
+            'excluded' => [
+                'usage_mode' => 'excluded',
+                'priority' => 1000,
+                'penalty' => config('planning.weights.excluded_resource', 100000),
+                'max_assignments_per_period' => null,
+            ],
+            'fallback', 'emergency_only' => [
+                'usage_mode' => $usageMode,
+                'priority' => 900,
+                'penalty' => (int) ($policy['fallback_penalty'] ?? config('planning.weights.fallback_usage', 1500)),
+                'max_assignments_per_period' => $policy['fallback_max_assignments_per_period'] ?? null,
+            ],
+            'secondary' => [
+                'usage_mode' => 'secondary',
+                'priority' => 500,
+                'penalty' => (int) ($policy['secondary_penalty'] ?? config('planning.weights.secondary_usage', 300)),
+                'max_assignments_per_period' => null,
+            ],
+            default => [
+                'usage_mode' => 'primary',
+                'priority' => 100,
+                'penalty' => 0,
+                'max_assignments_per_period' => null,
+            ],
+        };
+
+        foreach (['priority', 'penalty', 'max_assignments_per_period'] as $key) {
+            if (array_key_exists($key, $overrides) && $overrides[$key] !== null) {
+                $defaults[$key] = $overrides[$key];
+            }
+        }
+        $defaults['metadata'] = $overrides['metadata'] ?? [];
+
+        return $defaults;
     }
 
     private function seedSubstitutionPolicies(array $data, array $unitIds, array $shiftIds, array $resourceIds): void

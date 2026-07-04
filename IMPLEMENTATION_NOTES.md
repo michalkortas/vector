@@ -5,6 +5,7 @@
 - Solver core używa DTO i kontraktów; dostęp do bazy znajduje się w warstwie `Infrastructure`, kontrolerach, seederach i jobach.
 - Absencje urlopowe z JPG odtworzono jako dane niepewne, ale deterministyczne. Wiersz zwolnień lekarskich nie miał czytelnych wpisów.
 - Domyślny seed demo nadaje wszystkim aktywnym zasobom bazową umiejętność medyczną. Polityki `planning_unit_resource_rules` sterują użyciem primary/fallback bez hardcodowania oddziałowej w solverze.
+- Przypisanie grup zasobów do grup jednostek jest deklarowane w źródłowym JSON jako polityka obsady. Ten sam mechanizm obsłuży np. K1->L1, K2->L2/L3 i K3 jako fallback dla L1/L2/L3: skill decyduje, czy zasób umie wykonać pracę, a polityka obsady decyduje, czy jest wyborem podstawowym, drugim, awaryjnym albo wykluczonym.
 - MVP uruchamia job planowania przez kolejkę. W testach można używać `QUEUE_CONNECTION=sync`.
 - Limity czasu pracy są konfigurowane w seedzie i `config/planning.php`; nie są kodowaniem przepisów prawa pracy.
 - Święta są konfigurowane w tabeli `calendar_holidays` i opcjonalnie seedowane z sekcji `holidays` w JSON źródłowym. Zakres może być globalny, per zasób albo per grupa zasobów.

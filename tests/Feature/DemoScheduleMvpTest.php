@@ -23,11 +23,14 @@ it('loads demo image data and per resource limits from json source', function ()
     $resource17Id = DB::table('resources')->where('employee_number', 17)->value('id');
     $wardManagerUnitId = DB::table('planning_units')->where('code', 'ward_manager')->value('id');
     $seniorWardUnitId = DB::table('planning_units')->where('code', 'senior_ward')->value('id');
+    $deliveryRoomUnitId = DB::table('planning_units')->where('code', 'delivery_room')->value('id');
     $shortDayShiftId = DB::table('shift_templates')->where('code', 'SHORT_DAY')->value('id');
     $day12ShiftId = DB::table('shift_templates')->where('code', 'DAY_12H')->value('id');
+    $night12ShiftId = DB::table('shift_templates')->where('code', 'NIGHT_12H')->value('id');
     $resource1Skills = DB::table('resource_skill')->where('resource_id', $resource1Id)->pluck('skill_id')->all();
     $resource5Skills = DB::table('resource_skill')->where('resource_id', $resource5Id)->pluck('skill_id')->all();
     $resource7Skills = DB::table('resource_skill')->where('resource_id', $resource7Id)->pluck('skill_id')->all();
+    $resource1Metadata = json_decode(DB::table('resources')->where('id', $resource1Id)->value('metadata'), true);
     $resource17Metadata = json_decode(DB::table('resources')->where('id', $resource17Id)->value('metadata'), true);
     $resource5Metadata = json_decode(DB::table('resources')->where('id', $resource5Id)->value('metadata'), true);
     $resource16Metadata = json_decode(DB::table('resources')->where('id', $resource16Id)->value('metadata'), true);
@@ -56,6 +59,7 @@ it('loads demo image data and per resource limits from json source', function ()
         ->and($resource5Metadata['planned_duties_expression_raw'])->toBe('7x12+6,35')
         ->and($resource5Metadata['planned_duties_minutes'])->toBe(5435)
         ->and($resource5Metadata['employment_fraction'])->toBe(1)
+        ->and($resource1Metadata['policy_group_code'])->toBe('office_flex')
         ->and(DB::table('resource_planning_limits')->where('resource_id', $resource16Id)->value('target_minutes_per_month'))->toBe(7849)
         ->and(DB::table('resource_planning_limits')->where('resource_id', $resource16Id)->value('target_minutes_per_quarter'))->toBe(22178)
         ->and($resource16Metadata['employment_fraction'])->toBe(0.75)
@@ -64,6 +68,7 @@ it('loads demo image data and per resource limits from json source', function ()
         ->and($resource7Skills)->not->toContain($deliveryRoomSkillId)
         ->and($resource17Metadata['employment_type'])->toBe('contract')
         ->and($resource17Metadata['workload_policy'])->toBe('minimize_usage')
+        ->and($resource17Metadata['policy_group_code'])->toBe('contract')
         ->and($resource17Metadata['preferred_max_minutes'])->toBe(2160)
         ->and(DB::table('resource_planning_limits')->where('resource_id', $resource17Id)->value('target_minutes_per_month'))->toBeNull()
         ->and(DB::table('resource_planning_limits')->where('resource_id', $resource17Id)->value('max_minutes_per_month'))->toBeNull()
@@ -91,9 +96,11 @@ it('loads demo image data and per resource limits from json source', function ()
         ->and($shiftBalanceRuleMetadata['min_assignments_for_share'])->toBe(3)
         ->and(DB::table('planning_rule_settings')->where('code', 'even_weekends')->value('weight'))->toBe(500)
         ->and(DB::table('planning_unit_resource_rules')->where('resource_id', $resource17Id)->where('shift_template_id', $day12ShiftId)->pluck('usage_mode')->unique()->values()->all())->toBe(['fallback'])
+        ->and(DB::table('planning_unit_resource_rules')->where('resource_id', $resource17Id)->where('planning_unit_id', $deliveryRoomUnitId)->where('shift_template_id', $day12ShiftId)->value('usage_mode'))->toBe('fallback')
         ->and(DB::table('availability_rules')->where('resource_id', $resource1Id)->where('rule_type', 'unavailable')->pluck('day_of_week')->sort()->values()->all())->toBe([6, 7])
         ->and(DB::table('planning_unit_resource_rules')->where('resource_id', $resource1Id)->where('planning_unit_id', $wardManagerUnitId)->where('shift_template_id', $shortDayShiftId)->value('usage_mode'))->toBe('primary')
         ->and(DB::table('planning_unit_resource_rules')->where('resource_id', $resource1Id)->where('planning_unit_id', $seniorWardUnitId)->where('shift_template_id', $day12ShiftId)->value('usage_mode'))->toBe('fallback')
+        ->and(DB::table('planning_unit_resource_rules')->where('resource_id', $resource1Id)->where('planning_unit_id', $seniorWardUnitId)->where('shift_template_id', $night12ShiftId)->value('usage_mode'))->toBe('excluded')
         ->and(DB::table('resource_substitution_policies')->count())->toBe(1);
 });
 
@@ -702,6 +709,36 @@ it('excludes ward manager weekends from candidate pools', function (): void {
             expect($candidateIds)->not->toContain($resource1Id);
         }
     }
+});
+
+it('applies resource policy groups when building candidate pools', function (): void {
+    $this->seed();
+
+    $periodId = (int) DB::table('planning_periods')->where('starts_on', '2026-07-01')->value('id');
+    $resource1Id = (int) DB::table('resources')->where('employee_number', 1)->value('id');
+    $problem = app(EloquentPlanningProblemFactory::class)->make($periodId);
+    $pool = (new DefaultCandidatePoolBuilder)->build($problem);
+    $allowedDaySlot = DB::table('demand_slots')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
+        ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->whereDate('demand_slots.starts_at', '2026-07-01')
+        ->where('planning_units.code', 'senior_ward')
+        ->where('shift_templates.code', 'DAY_12H')
+        ->first(['demand_slots.*']);
+    $excludedNightSlot = DB::table('demand_slots')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
+        ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->whereDate('demand_slots.starts_at', '2026-07-01')
+        ->where('planning_units.code', 'senior_ward')
+        ->where('shift_templates.code', 'NIGHT_12H')
+        ->first(['demand_slots.*']);
+
+    $allowedCandidates = collect($pool->candidates($problem->geneKey((int) $allowedDaySlot->id, 1)));
+    $excludedCandidates = collect($pool->candidates($problem->geneKey((int) $excludedNightSlot->id, 1)));
+
+    expect($allowedCandidates->pluck('resource_id')->all())->toContain($resource1Id)
+        ->and($allowedCandidates->firstWhere('resource_id', $resource1Id)['usage_mode'])->toBe('fallback')
+        ->and($excludedCandidates->pluck('resource_id')->all())->not->toContain($resource1Id);
 });
 
 it('limits flex resource prefixes to units allowed by the resource policy', function (): void {
