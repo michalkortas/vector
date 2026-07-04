@@ -33,7 +33,7 @@ final class EloquentPlanningProblemFactory
             ->leftJoin('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
             ->where('planning_period_id', $planningPeriodId)
             ->orderBy('starts_at')
-            ->get(['demand_slots.*', 'shift_templates.code as shift_code'])
+            ->get(['demand_slots.*', 'shift_templates.code as shift_code', 'shift_templates.metadata as shift_metadata'])
             ->keyBy('id')
             ->map(fn ($row): array => [
                 'id' => (int) $row->id,
@@ -44,7 +44,10 @@ final class EloquentPlanningProblemFactory
                 'ends_at' => $row->ends_at,
                 'duration_minutes' => (int) $row->duration_minutes,
                 'required_resources_count' => (int) $row->required_resources_count,
-                'metadata' => json_decode($row->metadata ?? '[]', true) ?: [],
+                'metadata' => [
+                    ...(json_decode($row->metadata ?? '[]', true) ?: []),
+                    'shift' => json_decode($row->shift_metadata ?? '[]', true) ?: [],
+                ],
             ])->all();
 
         $requiredSkillsBySlot = [];

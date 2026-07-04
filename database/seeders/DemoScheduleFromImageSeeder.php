@@ -98,7 +98,7 @@ final class DemoScheduleFromImageSeeder extends Seeder
                     'end_time' => $shift['end_time'],
                     'duration_minutes' => $shift['duration_minutes'],
                     'crosses_midnight' => $shift['crosses_midnight'],
-                    'metadata' => json_encode([]),
+                    'metadata' => json_encode($this->shiftMetadata($shift)),
                     'created_at' => now(),
                     'updated_at' => now(),
                 ],
@@ -107,6 +107,19 @@ final class DemoScheduleFromImageSeeder extends Seeder
         }
 
         return $ids;
+    }
+
+    private function shiftMetadata(array $shift): array
+    {
+        $metadata = $shift['metadata'] ?? [];
+        if (isset($metadata['balance_group'])) {
+            return $metadata;
+        }
+
+        return [
+            ...$metadata,
+            'balance_group' => $shift['crosses_midnight'] ? 'night' : ($shift['duration_minutes'] >= 720 ? 'day' : 'short_day'),
+        ];
     }
 
     private function seedResources(array $data, int $groupId, array $skillIds, int $periodId): array

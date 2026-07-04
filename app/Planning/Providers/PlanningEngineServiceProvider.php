@@ -34,11 +34,11 @@ use App\Planning\Engine\Scoring\ConsecutiveNightShiftScoreRule;
 use App\Planning\Engine\Scoring\ContractUsageScoreRule;
 use App\Planning\Engine\Scoring\EvenHoursDistributionScoreRule;
 use App\Planning\Engine\Scoring\FallbackUsageScoreRule;
-use App\Planning\Engine\Scoring\NightShiftDistributionScoreRule;
 use App\Planning\Engine\Scoring\NightRecoveryAfterNightScoreRule;
 use App\Planning\Engine\Scoring\PlanningUnitResourcePolicyScoreRule;
-use App\Planning\Engine\Scoring\SecondaryUsageScoreRule;
 use App\Planning\Engine\Scoring\SameResourceStreakScoreRule;
+use App\Planning\Engine\Scoring\SecondaryUsageScoreRule;
+use App\Planning\Engine\Scoring\ShiftBalanceScoreRule;
 use App\Planning\Engine\Scoring\UnassignedSlotScoreRule;
 use App\Planning\Engine\Scoring\WeekendDistributionScoreRule;
 use App\Planning\Engine\Scoring\WeightedObjectiveFunction;
@@ -56,8 +56,8 @@ final class PlanningEngineServiceProvider extends ServiceProvider
         $this->app->bind(ScheduleRepairerInterface::class, DefaultScheduleRepairer::class);
 
         $this->app->bind(ObjectiveFunctionInterface::class, fn (): WeightedObjectiveFunction => new WeightedObjectiveFunction(
-            [new MissingSkillConstraint(), new SeniorCoverageConstraint(), new AbsenceConflictConstraint(), new AvailabilityConflictConstraint(), new HolidayConflictConstraint(), new OverlappingAssignmentsConstraint(), new MinimumRestConstraint(), new DailyLimitConstraint(), new NominalLimitConstraint(), new MonthlyLimitConstraint(), new QuarterlyLimitConstraint(), new ExcludedResourceConstraint(), new LockedAssignmentConstraint()],
-            [new UnassignedSlotScoreRule(), new PlanningUnitResourcePolicyScoreRule(), new EvenHoursDistributionScoreRule(), new ContractUsageScoreRule(), new NightRecoveryAfterNightScoreRule(), new ConsecutiveNightShiftScoreRule(), new SameResourceStreakScoreRule(), new NightShiftDistributionScoreRule(), new WeekendDistributionScoreRule(), new SecondaryUsageScoreRule(), new FallbackUsageScoreRule()],
+            [new MissingSkillConstraint, new SeniorCoverageConstraint, new AbsenceConflictConstraint, new AvailabilityConflictConstraint, new HolidayConflictConstraint, new OverlappingAssignmentsConstraint, new MinimumRestConstraint, new DailyLimitConstraint, new NominalLimitConstraint, new MonthlyLimitConstraint, new QuarterlyLimitConstraint, new ExcludedResourceConstraint, new LockedAssignmentConstraint],
+            [new UnassignedSlotScoreRule, new PlanningUnitResourcePolicyScoreRule, new EvenHoursDistributionScoreRule, new ContractUsageScoreRule, new NightRecoveryAfterNightScoreRule, new ConsecutiveNightShiftScoreRule, new SameResourceStreakScoreRule, new ShiftBalanceScoreRule, new WeekendDistributionScoreRule, new SecondaryUsageScoreRule, new FallbackUsageScoreRule],
             PlanningRuleSettings::applyToConfig(),
         ));
 
@@ -65,7 +65,7 @@ final class PlanningEngineServiceProvider extends ServiceProvider
             $app->make(CandidatePoolBuilderInterface::class),
             $app->make(InitialPopulationFactoryInterface::class),
             $app->make(SelectionStrategyInterface::class),
-            [new DayCrossoverOperator(), new PlanningUnitCrossoverOperator()],
+            [new DayCrossoverOperator, new PlanningUnitCrossoverOperator],
             $app->make(MutationOperatorInterface::class),
             $app->make(ScheduleRepairerInterface::class),
             $app->make(ObjectiveFunctionInterface::class),

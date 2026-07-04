@@ -1089,42 +1089,77 @@ final class EloquentPlanningResultPersister
 
         $spreadWeight = (int) config('planning.weights.spread_partial_top_ups', 5000);
         $repeatWeight = (int) config('planning.weights.avoid_same_resource_streaks', 80000);
-        $dayNightWeight = (int) config('planning.weights.even_nights', 3000);
+        $shiftBalanceWeight = (int) config('planning.weights.shift_balance', 3000);
 
         return $this->topUpSpreadPenalty($planningRunId, $planningPeriodId, $startsAt, 'contract_reassigned_full') * max(1, $spreadWeight)
             + $this->topUpCountForDay($planningRunId, $day) * $spreadWeight * 20
             + $this->resourceAssignmentsAroundDay($planningRunId, $resourceId, $day) * max(1, intdiv($repeatWeight, 4))
-            + $this->dayNightBalancePenaltyAfterAssignment($planningRunId, $resourceId, (string) $assignment->shift_code) * max(1, $dayNightWeight);
+            + $this->shiftBalancePenaltyAfterAssignment($planningRunId, $resourceId, (string) $assignment->shift_code) * max(1, $shiftBalanceWeight);
     }
 
-    private function dayNightBalancePenaltyAfterAssignment(int $planningRunId, int $resourceId, string $shiftCode): int
+    private function shiftBalancePenaltyAfterAssignment(int $planningRunId, int $resourceId, string $shiftCode): int
     {
-        if (! in_array($shiftCode, ['DAY_12H', 'NIGHT_12H'], true)) {
+        $policy = $this->shiftBalancePolicy();
+        $assignmentGroup = $this->shiftBalanceGroupFromCode($shiftCode, $policy);
+        if (! in_array($assignmentGroup, $policy['groups'], true)) {
             return 0;
         }
 
-        $counts = DB::table('assignments')
+        $rows = DB::table('assignments')
             ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
             ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
             ->where('assignments.planning_run_id', $planningRunId)
             ->where('assignments.resource_id', $resourceId)
-            ->whereIn('shift_templates.code', ['DAY_12H', 'NIGHT_12H'])
-            ->groupBy('shift_templates.code')
-            ->selectRaw('shift_templates.code as shift_code, count(*) as assignments_count')
-            ->pluck('assignments_count', 'shift_code')
-            ->map(fn ($count): int => (int) $count)
-            ->all();
+            ->get(['shift_templates.code as shift_code', 'shift_templates.metadata as shift_metadata']);
 
-        $total = array_sum($counts) + 1;
-        if ($total < 3) {
+        $counts = [$assignmentGroup => 1];
+        foreach ($rows as $row) {
+            $group = $this->shiftBalanceGroupFromCode((string) $row->shift_code, $policy, json_decode($row->shift_metadata ?? '[]', true) ?: []);
+            if (! in_array($group, $policy['groups'], true)) {
+                continue;
+            }
+            $counts[$group] = ($counts[$group] ?? 0) + 1;
+        }
+
+        $total = array_sum($counts);
+        if ($total < $policy['min_assignments']) {
             return 0;
         }
 
-        $nights = ($counts['NIGHT_12H'] ?? 0) + ($shiftCode === 'NIGHT_12H' ? 1 : 0);
-        $nightPercent = (int) round(($nights / $total) * 100);
-        $overPreferred = max(0, $nightPercent - 60);
+        $penalty = 0;
+        foreach ($policy['groups'] as $group) {
+            $sharePercent = (int) round(((int) ($counts[$group] ?? 0) / $total) * 100);
+            $overPreferred = max(0, $sharePercent - ((int) ($policy['max_by_group'][$group] ?? 100)));
+            $penalty += ($overPreferred ** 2) * 25;
+        }
 
-        return ($overPreferred ** 2) * 25;
+        return $penalty;
+    }
+
+    private function shiftBalancePolicy(): array
+    {
+        $metadata = collect(config('planning.rules', []))->firstWhere('code', 'shift_balance')['metadata'] ?? [];
+        $groups = array_values(array_filter($metadata['balanced_shift_groups'] ?? ['day', 'night'], fn ($group): bool => is_string($group) && $group !== ''));
+
+        return [
+            'groups' => $groups === [] ? ['day', 'night'] : $groups,
+            'shift_code_groups' => $metadata['shift_code_groups'] ?? ['DAY_12H' => 'day', 'NIGHT_12H' => 'night'],
+            'max_by_group' => $metadata['max_share_percent_by_group'] ?? ['night' => 60],
+            'min_assignments' => max(1, (int) ($metadata['min_assignments_for_share'] ?? 3)),
+        ];
+    }
+
+    private function shiftBalanceGroupFromCode(string $shiftCode, array $policy, array $metadata = []): ?string
+    {
+        if (isset($metadata['balance_group']) && is_string($metadata['balance_group']) && $metadata['balance_group'] !== '') {
+            return $metadata['balance_group'];
+        }
+
+        if (isset($policy['shift_code_groups'][$shiftCode])) {
+            return (string) $policy['shift_code_groups'][$shiftCode];
+        }
+
+        return str_contains($shiftCode, 'NIGHT') ? 'night' : (str_contains($shiftCode, 'DAY') ? 'day' : null);
     }
 
     private function supplementaryTopUpCandidateScore(int $planningRunId, int $planningPeriodId, int $resourceId, CarbonImmutable $startsAt): int

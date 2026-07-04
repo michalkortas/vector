@@ -36,7 +36,7 @@ return [
         'spread_partial_top_ups' => 5000,
         'flex_resource_one_split_per_day' => 100000,
         'secondary_usage' => 300,
-        'even_nights' => 3000,
+        'shift_balance' => 3000,
         'even_weekends' => 500,
         'preference_mismatch' => 200,
     ],
@@ -62,7 +62,7 @@ return [
         ['code' => 'flex_resource_one_split_per_day', 'name' => 'Zasób uzupełniający maks. 1 podział dziennie', 'description' => 'Zasób uzupełniający może domknąć najwyżej jedną zmianę w danym dniu.', 'weight' => 100000, 'can_toggle' => false, 'metadata' => ['max_splits_per_day' => 1, 'max_prefixes_per_period' => 4, 'prefix_minutes' => 335, 'allowed_shift_codes' => ['DAY_12H'], 'self_top_up_allowed_shift_codes' => ['DAY_12H'], 'self_top_up_allowed_unit_codes' => ['senior_ward']]],
         ['code' => 'fallback_usage', 'name' => 'Obsada rezerwowa', 'description' => 'Osoba rezerwowa może być użyta, ale dopiero gdy brakuje lepszej obsady.', 'weight' => 1500],
         ['code' => 'secondary_usage', 'name' => 'Obsada drugiego wyboru', 'description' => 'Osoba drugiego wyboru jest dopuszczalna, ale mniej preferowana niż podstawowa obsada.', 'weight' => 300],
-        ['code' => 'even_nights', 'name' => 'Bilans dniówek i nocek', 'description' => 'Stara się równoważyć liczbę dniówek i nocek u jednej osoby.', 'weight' => 3000, 'metadata' => ['min_night_share_percent' => 25, 'max_night_share_percent' => 60, 'min_assignments_for_share' => 3]],
+        ['code' => 'shift_balance', 'name' => 'Bilans zmian', 'description' => 'Stara się równoważyć typy zmian u jednej osoby, np. dni i noce.', 'weight' => 3000, 'metadata' => ['balanced_shift_groups' => ['day', 'night'], 'shift_code_groups' => ['DAY_12H' => 'day', 'NIGHT_12H' => 'night'], 'min_share_percent_by_group' => ['night' => 25], 'max_share_percent_by_group' => ['night' => 60], 'min_assignments_for_share' => 3]],
         ['code' => 'even_weekends', 'name' => 'Równomierny rozkład weekendów', 'description' => 'Stara się dzielić weekendy możliwie równo między pracowników.', 'weight' => 500],
     ],
 ];

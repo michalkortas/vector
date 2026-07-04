@@ -419,7 +419,7 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
         }
 
         $score += $this->resourceDayStreakRepairPenalty($slot, $resourceId, $used);
-        $score += $this->dayNightRepairPenalty($slot, $resourceId, $used);
+        $score += $this->shiftBalanceRepairPenalty($slot, $resourceId, $used);
 
         return $score;
     }
@@ -453,34 +453,68 @@ final class DefaultScheduleRepairer implements ScheduleRepairerInterface
         return $penalty;
     }
 
-    private function dayNightRepairPenalty(array $slot, int $resourceId, array $used): int
+    private function shiftBalanceRepairPenalty(array $slot, int $resourceId, array $used): int
     {
-        if (! in_array(($slot['shift_code'] ?? ''), ['DAY_12H', 'NIGHT_12H'], true)) {
+        $policy = $this->shiftBalancePolicy();
+        $slotGroup = $this->shiftBalanceGroup($slot, $policy);
+        if (! in_array($slotGroup, $policy['groups'], true)) {
             return 0;
         }
 
         $total = 1;
-        $nights = ($slot['shift_code'] ?? '') === 'NIGHT_12H' ? 1 : 0;
+        $groupCounts = [$slotGroup => 1];
         foreach ($used[$resourceId] ?? [] as $usedSlot) {
-            if (! in_array(($usedSlot['shift_code'] ?? ''), ['DAY_12H', 'NIGHT_12H'], true)) {
+            $usedGroup = $this->shiftBalanceGroup($usedSlot, $policy);
+            if (! in_array($usedGroup, $policy['groups'], true)) {
                 continue;
             }
 
             $total++;
-            if (($usedSlot['shift_code'] ?? '') === 'NIGHT_12H') {
-                $nights++;
-            }
+            $groupCounts[$usedGroup] = ($groupCounts[$usedGroup] ?? 0) + 1;
         }
 
-        if ($total < 3) {
+        if ($total < $policy['min_assignments']) {
             return 0;
         }
 
-        $nightPercent = (int) round(($nights / $total) * 100);
-        $underPreferred = max(0, 25 - $nightPercent);
-        $overPreferred = max(0, $nightPercent - 60);
+        $penalty = 0;
+        foreach ($policy['groups'] as $group) {
+            $sharePercent = (int) round(((int) ($groupCounts[$group] ?? 0) / $total) * 100);
+            $underPreferred = max(0, ((int) ($policy['min_by_group'][$group] ?? 0)) - $sharePercent);
+            $overPreferred = max(0, $sharePercent - ((int) ($policy['max_by_group'][$group] ?? 100)));
+            $penalty += ($underPreferred ** 2) * 2_000 + ($overPreferred ** 2) * 5_000;
+        }
 
-        return ($underPreferred ** 2) * 2_000 + ($overPreferred ** 2) * 5_000;
+        return $penalty;
+    }
+
+    private function shiftBalancePolicy(): array
+    {
+        $metadata = collect(config('planning.rules', []))->firstWhere('code', 'shift_balance')['metadata'] ?? [];
+        $groups = array_values(array_filter($metadata['balanced_shift_groups'] ?? ['day', 'night'], fn ($group): bool => is_string($group) && $group !== ''));
+
+        return [
+            'groups' => $groups === [] ? ['day', 'night'] : $groups,
+            'shift_code_groups' => $metadata['shift_code_groups'] ?? ['DAY_12H' => 'day', 'NIGHT_12H' => 'night'],
+            'min_by_group' => $metadata['min_share_percent_by_group'] ?? ['night' => 25],
+            'max_by_group' => $metadata['max_share_percent_by_group'] ?? ['night' => 60],
+            'min_assignments' => max(1, (int) ($metadata['min_assignments_for_share'] ?? 3)),
+        ];
+    }
+
+    private function shiftBalanceGroup(array $slot, array $policy): ?string
+    {
+        $metadataGroup = $slot['metadata']['shift']['balance_group'] ?? $slot['metadata']['balance_group'] ?? null;
+        if (is_string($metadataGroup) && $metadataGroup !== '') {
+            return $metadataGroup;
+        }
+
+        $shiftCode = (string) ($slot['shift_code'] ?? '');
+        if (isset($policy['shift_code_groups'][$shiftCode])) {
+            return (string) $policy['shift_code_groups'][$shiftCode];
+        }
+
+        return str_contains($shiftCode, 'NIGHT') ? 'night' : (str_contains($shiftCode, 'DAY') ? 'day' : null);
     }
 
     private function hasOverlap(array $slot, int $resourceId, array $used): bool

@@ -34,7 +34,7 @@ it('loads demo image data and per resource limits from json source', function ()
     $contractRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'contract_usage')->value('metadata'), true);
     $spreadRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'spread_partial_top_ups')->value('metadata'), true);
     $wardManagerRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'flex_resource_one_split_per_day')->value('metadata'), true);
-    $evenNightsRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'even_nights')->value('metadata'), true);
+    $shiftBalanceRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'shift_balance')->value('metadata'), true);
     $resource5VacationMinutes = DB::table('absences')->where('resource_id', $resource5Id)->sum('nominal_minutes');
     $resource12Id = DB::table('resources')->where('employee_number', 12)->value('id');
 
@@ -77,10 +77,14 @@ it('loads demo image data and per resource limits from json source', function ()
         ->and($wardManagerRuleMetadata['prefix_minutes'])->toBe(335)
         ->and($wardManagerRuleMetadata['allowed_shift_codes'])->toBe(['DAY_12H'])
         ->and((bool) DB::table('planning_rule_settings')->where('code', 'flex_resource_one_split_per_day')->value('can_toggle'))->toBeFalse()
-        ->and(DB::table('planning_rule_settings')->where('code', 'even_nights')->value('weight'))->toBe(3000)
-        ->and($evenNightsRuleMetadata['min_night_share_percent'])->toBe(25)
-        ->and($evenNightsRuleMetadata['max_night_share_percent'])->toBe(60)
-        ->and($evenNightsRuleMetadata['min_assignments_for_share'])->toBe(3)
+        ->and(json_decode(DB::table('shift_templates')->where('code', 'DAY_12H')->value('metadata'), true)['balance_group'])->toBe('day')
+        ->and(json_decode(DB::table('shift_templates')->where('code', 'NIGHT_12H')->value('metadata'), true)['balance_group'])->toBe('night')
+        ->and(DB::table('planning_rule_settings')->where('code', 'shift_balance')->value('name'))->toBe('Bilans zmian')
+        ->and(DB::table('planning_rule_settings')->where('code', 'shift_balance')->value('weight'))->toBe(3000)
+        ->and($shiftBalanceRuleMetadata['balanced_shift_groups'])->toBe(['day', 'night'])
+        ->and($shiftBalanceRuleMetadata['min_share_percent_by_group']['night'])->toBe(25)
+        ->and($shiftBalanceRuleMetadata['max_share_percent_by_group']['night'])->toBe(60)
+        ->and($shiftBalanceRuleMetadata['min_assignments_for_share'])->toBe(3)
         ->and(DB::table('planning_rule_settings')->where('code', 'even_weekends')->value('weight'))->toBe(500)
         ->and(DB::table('planning_unit_resource_rules')->where('resource_id', $resource17Id)->where('shift_template_id', $day12ShiftId)->pluck('usage_mode')->unique()->values()->all())->toBe(['fallback'])
         ->and(DB::table('availability_rules')->where('resource_id', $resource1Id)->where('rule_type', 'unavailable')->pluck('day_of_week')->sort()->values()->all())->toBe([6, 7])

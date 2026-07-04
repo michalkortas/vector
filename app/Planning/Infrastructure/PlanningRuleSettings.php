@@ -14,6 +14,7 @@ final class PlanningRuleSettings
         }
 
         self::renameRuleCode('ward_manager_one_split_per_day', 'flex_resource_one_split_per_day');
+        self::renameRuleCode('even_nights', 'shift_balance');
 
         foreach (config('planning.rules', []) as $rule) {
             $canToggle = (bool) ($rule['can_toggle'] ?? true);
@@ -54,7 +55,7 @@ final class PlanningRuleSettings
             if ($rule['code'] === 'contract_usage' && (int) $existing->weight === 500) {
                 $updates['weight'] = $rule['weight'];
             }
-            if ($rule['code'] === 'even_nights' && (int) $existing->weight === 500) {
+            if ($rule['code'] === 'shift_balance' && (int) $existing->weight === 500) {
                 $updates['weight'] = $rule['weight'];
             }
             $metadata = json_decode($existing->metadata ?? '[]', true) ?: [];
@@ -63,6 +64,9 @@ final class PlanningRuleSettings
                 if (! array_key_exists($key, $metadata)) {
                     $metadata[$key] = $value;
                 }
+            }
+            if ($rule['code'] === 'shift_balance') {
+                unset($metadata['min_night_share_percent'], $metadata['max_night_share_percent']);
             }
             if ($defaultMetadata !== []) {
                 $updates['metadata'] = json_encode($metadata);

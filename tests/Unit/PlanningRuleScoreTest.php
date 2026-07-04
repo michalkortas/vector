@@ -8,8 +8,8 @@ use App\Planning\Engine\Repair\DefaultScheduleRepairer;
 use App\Planning\Engine\Scoring\ConsecutiveNightShiftScoreRule;
 use App\Planning\Engine\Scoring\ContractUsageScoreRule;
 use App\Planning\Engine\Scoring\NightRecoveryAfterNightScoreRule;
-use App\Planning\Engine\Scoring\NightShiftDistributionScoreRule;
 use App\Planning\Engine\Scoring\SameResourceStreakScoreRule;
+use App\Planning\Engine\Scoring\ShiftBalanceScoreRule;
 use App\Planning\Infrastructure\PlanningRuleSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -101,8 +101,8 @@ it('penalizes contract usage over the preferred max from source data', function 
         ->and($component->score)->toBe(1200 * 2 + 1200 * 8 + 7200 + 2400);
 });
 
-it('penalizes schedules where one employee has only night shifts', function (): void {
-    config()->set('planning.weights.even_nights', 10);
+it('penalizes schedules where one employee has only one shift group', function (): void {
+    config()->set('planning.weights.shift_balance', 10);
 
     $problem = new PlanningProblem(
         periodId: 1,
@@ -130,16 +130,18 @@ it('penalizes schedules where one employee has only night shifts', function (): 
         unitRules: [],
     );
 
-    $component = (new NightShiftDistributionScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1, '3:1' => 1, '4:1' => 2]));
+    $component = (new ShiftBalanceScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1, '3:1' => 1, '4:1' => 2]));
 
-    expect($component->metadata['night_share_penalty'])->toBe(40000)
-        ->and($component->metadata['night_counts'][1])->toBe(3)
+    expect($component->code)->toBe('shift_balance')
+        ->and($component->label)->toBe('Bilans zmian')
+        ->and($component->metadata['share_penalty'])->toBe(40000)
+        ->and($component->metadata['group_counts'][1]['night'])->toBe(3)
         ->and($component->metadata['assignment_counts'][1])->toBe(3)
         ->and($component->score)->toBeGreaterThan(400000);
 });
 
 it('penalizes night-only contract schedules when they have enough assignments', function (): void {
-    config()->set('planning.weights.even_nights', 10);
+    config()->set('planning.weights.shift_balance', 10);
 
     $problem = new PlanningProblem(
         periodId: 1,
@@ -166,11 +168,46 @@ it('penalizes night-only contract schedules when they have enough assignments', 
         unitRules: [],
     );
 
-    $component = (new NightShiftDistributionScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 20, '2:1' => 20, '3:1' => 20, '4:1' => 20]));
+    $component = (new ShiftBalanceScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 20, '2:1' => 20, '3:1' => 20, '4:1' => 20]));
 
-    expect($component->metadata['night_share_penalty'])->toBe(40000)
+    expect($component->metadata['share_penalty'])->toBe(40000)
         ->and($component->metadata['assignment_counts'][20])->toBe(4)
         ->and($component->score)->toBe(400000);
+});
+
+it('balances custom shift groups from shift metadata', function (): void {
+    $rules = config('planning.rules');
+
+    config()->set('planning.weights.shift_balance', 10);
+    config()->set('planning.rules', collect($rules)->map(function (array $rule): array {
+        if ($rule['code'] !== 'shift_balance') {
+            return $rule;
+        }
+
+        return [
+            ...$rule,
+            'metadata' => [
+                'balanced_shift_groups' => ['morning', 'afternoon', 'night'],
+                'min_share_percent_by_group' => ['night' => 20],
+                'max_share_percent_by_group' => ['night' => 50, 'afternoon' => 70],
+                'min_assignments_for_share' => 3,
+            ],
+        ];
+    })->all());
+
+    $problem = planningProblemForRuleScores([
+        1 => ['id' => 1, 'starts_at' => '2026-07-01 06:00:00', 'ends_at' => '2026-07-01 14:00:00', 'duration_minutes' => 480, 'shift_code' => 'MORNING', 'metadata' => ['shift' => ['balance_group' => 'morning']]],
+        2 => ['id' => 2, 'starts_at' => '2026-07-02 14:00:00', 'ends_at' => '2026-07-02 22:00:00', 'duration_minutes' => 480, 'shift_code' => 'AFTERNOON', 'metadata' => ['shift' => ['balance_group' => 'afternoon']]],
+        3 => ['id' => 3, 'starts_at' => '2026-07-03 14:00:00', 'ends_at' => '2026-07-03 22:00:00', 'duration_minutes' => 480, 'shift_code' => 'AFTERNOON', 'metadata' => ['shift' => ['balance_group' => 'afternoon']]],
+    ]);
+
+    $component = (new ShiftBalanceScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1, '3:1' => 1]));
+
+    expect($component->metadata['balanced_shift_groups'])->toBe(['morning', 'afternoon', 'night'])
+        ->and($component->metadata['group_counts'][1])->toMatchArray(['morning' => 1, 'afternoon' => 2, 'night' => 0])
+        ->and($component->metadata['share_penalty'])->toBeGreaterThan(0);
+
+    config()->set('planning.rules', $rules);
 });
 
 it('penalizes repeated assignments of the same resource in one schedule row', function (): void {
