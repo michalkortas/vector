@@ -166,7 +166,6 @@ final class EloquentPlanningResultPersister
             ->where('assignments.resource_id', '<>', $flexResourceId)
             ->where('assignments.duration_minutes', '>=', $this->minimumEmployeeSegmentMinutes() * 2)
             ->when($this->flexResourcePrimaryUnitIds($flexResourceId) !== [], fn ($query) => $query->whereNotIn('planning_units.id', $this->flexResourcePrimaryUnitIds($flexResourceId)))
-            ->when($this->flexResourceAllowedUnitCodes($flexResourceId) !== [], fn ($query) => $query->whereIn('planning_units.code', $this->flexResourceAllowedUnitCodes($flexResourceId)))
             ->get([
                 'assignments.*',
                 'resources.metadata as resource_metadata',

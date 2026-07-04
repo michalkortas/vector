@@ -836,6 +836,81 @@ it('splits a contract day shift between an underfilled employee and ward manager
         ->and($prefix->starts_at)->toBe('2026-07-01 07:00:00');
 });
 
+it('can move a full contract shift from any skilled unit to an underfilled employee', function (): void {
+    $this->seed();
+
+    $periodId = (int) DB::table('planning_periods')->where('starts_on', '2026-07-01')->value('id');
+    $wardManagerId = (int) DB::table('resources')->where('employee_number', 1)->value('id');
+    $employeeId = (int) DB::table('resources')->where('employee_number', 5)->value('id');
+    $contractId = (int) DB::table('resources')->where('employee_number', 21)->value('id');
+
+    $runId = DB::table('planning_runs')->insertGetId([
+        'planning_period_id' => $periodId,
+        'status' => 'running',
+        'solver_name' => 'test',
+        'random_seed' => 1,
+        'config' => json_encode([]),
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $deliverySlot = DB::table('demand_slots')
+        ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
+        ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
+        ->whereDate('demand_slots.starts_at', '2026-07-01')
+        ->where('planning_units.code', 'delivery_room')
+        ->where('shift_templates.code', 'DAY_12H')
+        ->first(['demand_slots.*']);
+
+    $assignmentId = DB::table('assignments')->insertGetId([
+        'planning_period_id' => $periodId,
+        'demand_slot_id' => $deliverySlot->id,
+        'slot_position' => 1,
+        'segment_position' => 1,
+        'resource_id' => $contractId,
+        'planning_run_id' => $runId,
+        'starts_at' => $deliverySlot->starts_at,
+        'ends_at' => $deliverySlot->ends_at,
+        'duration_minutes' => $deliverySlot->duration_minutes,
+        'source' => 'test',
+        'is_locked' => false,
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('assignments')->insert([
+        'planning_period_id' => $periodId,
+        'demand_slot_id' => $deliverySlot->id,
+        'slot_position' => 2,
+        'segment_position' => 1,
+        'resource_id' => $contractId,
+        'planning_run_id' => $runId,
+        'starts_at' => $deliverySlot->starts_at,
+        'ends_at' => $deliverySlot->ends_at,
+        'duration_minutes' => $deliverySlot->duration_minutes,
+        'source' => 'test',
+        'is_locked' => false,
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $persister = new EloquentPlanningResultPersister;
+    $method = new ReflectionMethod($persister, 'splitFlexResourceAssignmentForTopUp');
+    $method->setAccessible(true);
+    $changed = $method->invoke($persister, $runId, $periodId, $wardManagerId, [
+        'resource_id' => $employeeId,
+        'missing_minutes' => 720,
+    ]);
+
+    $assignment = DB::table('assignments')->where('id', $assignmentId)->first();
+
+    expect($changed)->toBeTrue()
+        ->and((int) $assignment->resource_id)->toBe($employeeId)
+        ->and(json_decode($assignment->metadata, true)['segment_kind'])->toBe('contract_reassigned_full');
+});
+
 it('prefers a meaningful employee remainder before taking another full contract shift', function (): void {
     $persister = new EloquentPlanningResultPersister;
     $method = new ReflectionMethod($persister, 'employeePartialMinutesForMissing');
