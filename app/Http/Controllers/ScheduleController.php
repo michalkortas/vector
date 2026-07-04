@@ -65,6 +65,7 @@ final class ScheduleController extends Controller
         }
 
         $resourcePlannedMinutes = [];
+        $resourceDutyDistribution = [];
         if ($latestRun) {
             $resourcePlannedMinutes = DB::table('assignments')
                 ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
@@ -74,6 +75,19 @@ final class ScheduleController extends Controller
                 ->groupBy('assignments.resource_id')
                 ->pluck('minutes', 'assignments.resource_id')
                 ->map(fn ($minutes): int => (int) $minutes)
+                ->all();
+            $resourceDutyDistribution = DB::table('assignments')
+                ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
+                ->where('assignments.planning_run_id', $latestRun->id)
+                ->whereNotNull('assignments.resource_id')
+                ->selectRaw('assignments.resource_id, coalesce(assignments.duration_minutes, demand_slots.duration_minutes) as minutes, count(*) as duties_count')
+                ->groupBy('assignments.resource_id', DB::raw('coalesce(assignments.duration_minutes, demand_slots.duration_minutes)'))
+                ->orderByDesc('minutes')
+                ->get()
+                ->groupBy('resource_id')
+                ->map(fn ($rows): string => $rows
+                    ->map(fn ($row): string => ((int) $row->duties_count).'x'.$this->durationCompact((int) $row->minutes))
+                    ->implode(', '))
                 ->all();
         }
 
@@ -94,14 +108,14 @@ final class ScheduleController extends Controller
             ->leftJoin('resource_planning_limits', 'resource_planning_limits.resource_id', '=', 'resources.id')
             ->orderBy('employee_number')
             ->get(['resources.id', 'employee_number', 'name', 'is_active', 'resources.metadata', 'target_minutes_per_month', 'target_minutes_per_quarter', 'max_minutes_per_month', 'max_minutes_per_quarter'])
-            ->map(function ($resource) use ($resourcePlannedMinutes, $resourceAbsenceMinutes) {
+            ->map(function ($resource) use ($resourcePlannedMinutes, $resourceDutyDistribution, $resourceAbsenceMinutes) {
                 $metadata = json_decode($resource->metadata ?? '[]', true) ?: [];
                 $plannedMinutes = $resourcePlannedMinutes[$resource->id] ?? 0;
                 $absenceMinutes = $resourceAbsenceMinutes[$resource->id] ?? 0;
                 $targetMinutes = (int) ($resource->target_minutes_per_month ?? 0);
                 $resource->employment_type = $metadata['employment_type'] ?? 'employment';
                 $resource->workload_policy = $metadata['workload_policy'] ?? 'must_fill_nominal';
-                $resource->planned_duties_note = $this->plannedDutiesNote((string) ($metadata['planned_duties_expression_raw'] ?? ''));
+                $resource->actual_duties_note = $resourceDutyDistribution[$resource->id] ?? '-';
                 $resource->planned_work_minutes = $plannedMinutes;
                 $resource->planned_absence_minutes = $absenceMinutes;
                 $resource->planned_total_minutes = $plannedMinutes + $absenceMinutes;
@@ -162,39 +176,11 @@ final class ScheduleController extends Controller
         ]);
     }
 
-    private function plannedDutiesNote(string $expression): string
+    private function durationCompact(int $minutes): string
     {
-        $expression = trim($expression);
-        if ($expression === '' || $expression === '-') {
-            return '-';
-        }
+        $hours = intdiv($minutes, 60);
+        $rest = $minutes % 60;
 
-        return collect(explode('+', $expression))
-            ->map(fn (string $part): string => $this->plannedDutiesPart(trim($part)))
-            ->implode(' + ');
-    }
-
-    private function plannedDutiesPart(string $part): string
-    {
-        if (preg_match('/^(\d+)x(\d+)(?:,(\d{1,2}))?$/', $part, $matches) === 1) {
-            $count = (int) $matches[1];
-            $hours = (int) $matches[2];
-            $minutes = $matches[3] ?? null;
-            $duration = $minutes === null
-                ? $hours.'h'
-                : $hours.':'.str_pad($minutes, 2, '0', STR_PAD_LEFT);
-
-            return $count.'x'.$duration;
-        }
-
-        if (preg_match('/^(\d+),(\d{1,2})$/', $part, $matches) === 1) {
-            return '1x'.((int) $matches[1]).':'.str_pad($matches[2], 2, '0', STR_PAD_LEFT);
-        }
-
-        if (preg_match('/^\d+$/', $part) === 1) {
-            return '1x'.$part.'h';
-        }
-
-        return str_replace(',', ':', $part);
+        return $rest === 0 ? (string) $hours : $hours.':'.str_pad((string) $rest, 2, '0', STR_PAD_LEFT);
     }
 }

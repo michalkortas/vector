@@ -14,7 +14,7 @@ type Resource = {
   is_active: boolean;
   employment_type: string;
   workload_policy: string;
-  planned_duties_note: string;
+  actual_duties_note: string;
   target_minutes_per_month: number;
   target_minutes_per_quarter: number;
   max_minutes_per_month: number;
@@ -449,11 +449,10 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
                 key={r.id}
                 type="button"
                 onClick={() => setHighlightedEmployeeNumber(r.employee_number)}
-                className={`grid gap-3 border p-3 text-left text-sm md:grid-cols-[280px_repeat(6,minmax(110px,1fr))] ${highlightedEmployeeNumber === r.employee_number ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-zinc-200 bg-white'}`}
+                className={`grid gap-3 border p-3 text-left text-sm md:grid-cols-[280px_repeat(7,minmax(110px,1fr))] ${highlightedEmployeeNumber === r.employee_number ? 'border-fuchsia-400 bg-fuchsia-50' : 'border-zinc-200 bg-white'}`}
               >
                 <div>
                   <b>{r.employee_number}. {r.name}</b>
-                  <p className="mt-1 text-xs font-medium text-zinc-600">JPG: {r.planned_duties_note}</p>
                   {r.workload_policy === 'minimize_usage' && <span className="ml-2 rounded-sm border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-900">kontrakt / zlecenie</span>}
                   {!r.is_active && <p className="text-xs text-red-700">Nieaktywny</p>}
                 </div>
@@ -461,6 +460,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
                 <ResourceStat label="Nominał miesiąc" value={minutes(r.target_minutes_per_month)} />
                 <ResourceStat label="Max czas" value={r.max_minutes_per_month ? minutes(r.max_minutes_per_month) : 'bez limitu'} />
                 <ResourceStat label="Urlopy" value={minutes(r.planned_absence_minutes)} />
+                <ResourceStat label="Rozkład dyżurów" value={r.actual_duties_note} />
                 <ResourceStat label="Zaplanowano" value={minutes(r.planned_work_minutes)} />
                 <ResourceStat label="Praca + urlopy" value={minutes(r.planned_total_minutes)} />
               </button>

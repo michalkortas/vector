@@ -106,16 +106,61 @@ it('renders the schedule page', function (): void {
     $resources = $this->get('/')->inertiaProps('resources');
     $scheduleRows = $this->get('/')->inertiaProps('scheduleRows');
     $resource5 = collect($resources)->firstWhere('employee_number', 5);
-    $resource1 = collect($resources)->firstWhere('employee_number', 1);
 
-    expect($resource5['planned_duties_note'])->toBe('7x12h + 1x6:35')
-        ->and($resource1['planned_duties_note'])->toBe('23x7:35')
+    expect($resource5)->not->toHaveKey('planned_duties_note')
+        ->and($resource5['actual_duties_note'])->toBe('-')
         ->and(collect($scheduleRows)->pluck('unit_code')->unique()->sort()->values()->all())->toBe([
             'delivery_room',
             'newborns',
             'senior_ward',
             'ward_manager',
         ]);
+});
+
+it('shows actual duty distribution from the latest schedule result', function (): void {
+    $this->withoutVite();
+    $this->seed();
+
+    $periodId = (int) DB::table('planning_periods')->where('starts_on', '2026-07-01')->value('id');
+    $resourceId = (int) DB::table('resources')->where('employee_number', 5)->value('id');
+    $slot = DB::table('demand_slots')
+        ->where('planning_period_id', $periodId)
+        ->where('duration_minutes', 720)
+        ->orderBy('starts_at')
+        ->first();
+    $runId = DB::table('planning_runs')->insertGetId([
+        'planning_period_id' => $periodId,
+        'status' => 'completed',
+        'solver_name' => 'test',
+        'random_seed' => 1,
+        'config' => json_encode([]),
+        'metadata' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    foreach ([720, 720, 275] as $index => $duration) {
+        DB::table('assignments')->insert([
+            'planning_period_id' => $periodId,
+            'demand_slot_id' => $slot->id,
+            'slot_position' => $index + 1,
+            'segment_position' => 1,
+            'resource_id' => $resourceId,
+            'planning_run_id' => $runId,
+            'starts_at' => $slot->starts_at,
+            'ends_at' => CarbonImmutable::parse($slot->starts_at)->addMinutes($duration)->toDateTimeString(),
+            'duration_minutes' => $duration,
+            'source' => 'test',
+            'is_locked' => false,
+            'metadata' => json_encode([]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    $resource5 = collect($this->get('/')->inertiaProps('resources'))->firstWhere('employee_number', 5);
+
+    expect($resource5['actual_duties_note'])->toBe('2x12, 1x4:35');
 });
 
 it('keeps demand slot identifiers stable when demo seed is rerun', function (): void {
