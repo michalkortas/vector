@@ -42,7 +42,7 @@ final class EloquentPlanningResultPersister
 
             $this->ensureContractMinimumAssignments($planningRunId, $planningPeriodId);
             $completionViolations = $this->completeEmployeeNominals($planningRunId, $planningPeriodId);
-            $this->reduceContractUsageWithWardManagerPrefixes($planningRunId, $planningPeriodId);
+            $this->reduceContractUsageWithFlexResourcePrefixes($planningRunId, $planningPeriodId);
 
             foreach ($result->score->components as $component) {
                 /** @var ScoreComponent $component */
@@ -106,8 +106,8 @@ final class EloquentPlanningResultPersister
 
     private function completeEmployeeNominals(int $planningRunId, int $planningPeriodId): array
     {
-        $wardManagerId = $this->wardManagerResourceId();
-        if ($wardManagerId === null) {
+        $flexResourceId = $this->flexResourceId();
+        if ($flexResourceId === null) {
             return $this->nominalUnderfillViolations($planningRunId, $planningPeriodId);
         }
 
@@ -122,14 +122,21 @@ final class EloquentPlanningResultPersister
                 if ($underfilled['missing_minutes'] <= 0) {
                     continue;
                 }
-                if ((int) $underfilled['resource_id'] === $wardManagerId) {
+                if ((int) $underfilled['resource_id'] === $flexResourceId) {
                     $missing = min((int) $underfilled['missing_minutes'], $this->maxDemandSlotMinutes($planningPeriodId));
-                    $changed = $this->addSupplementaryNominalTopUp($planningRunId, $planningPeriodId, $wardManagerId, $missing, ['DAY_12H'], ['senior_ward']) || $changed;
+                    $changed = $this->addSupplementaryNominalTopUp(
+                        $planningRunId,
+                        $planningPeriodId,
+                        $flexResourceId,
+                        $missing,
+                        $this->flexResourceSelfTopUpAllowedShiftCodes($flexResourceId),
+                        $this->flexResourceSelfTopUpAllowedUnitCodes($flexResourceId),
+                    ) || $changed;
 
                     continue;
                 }
 
-                $changed = $this->splitWardManagerAssignmentForTopUp($planningRunId, $planningPeriodId, $wardManagerId, $underfilled) || $changed;
+                $changed = $this->splitFlexResourceAssignmentForTopUp($planningRunId, $planningPeriodId, $flexResourceId, $underfilled) || $changed;
             }
 
             if (! $changed) {
@@ -140,7 +147,7 @@ final class EloquentPlanningResultPersister
         return $this->nominalUnderfillViolations($planningRunId, $planningPeriodId);
     }
 
-    private function splitWardManagerAssignmentForTopUp(int $planningRunId, int $planningPeriodId, int $wardManagerId, array $underfilled): bool
+    private function splitFlexResourceAssignmentForTopUp(int $planningRunId, int $planningPeriodId, int $flexResourceId, array $underfilled): bool
     {
         $missing = min((int) $underfilled['missing_minutes'], $this->maxDemandSlotMinutes($planningPeriodId));
         if ($missing <= 0) {
@@ -149,16 +156,16 @@ final class EloquentPlanningResultPersister
 
         $resourceId = (int) $underfilled['resource_id'];
         $resourceSkills = $this->skillIdsForResource($resourceId);
-        $wardManagerSkills = $this->skillIdsForResource($wardManagerId);
+        $flexResourceSkills = $this->skillIdsForResource($flexResourceId);
         $assignments = DB::table('assignments')
             ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
             ->join('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
             ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
             ->join('resources', 'resources.id', '=', 'assignments.resource_id')
             ->where('assignments.planning_run_id', $planningRunId)
-            ->where('assignments.resource_id', '<>', $wardManagerId)
+            ->where('assignments.resource_id', '<>', $flexResourceId)
             ->where('assignments.duration_minutes', '>=', $this->minimumEmployeeSegmentMinutes() * 2)
-            ->where('planning_units.code', '<>', 'ward_manager')
+            ->when($this->flexResourcePrimaryUnitIds($flexResourceId) !== [], fn ($query) => $query->whereNotIn('planning_units.id', $this->flexResourcePrimaryUnitIds($flexResourceId)))
             ->get([
                 'assignments.*',
                 'resources.metadata as resource_metadata',
@@ -191,15 +198,15 @@ final class EloquentPlanningResultPersister
             $assignmentStart = CarbonImmutable::parse($assignment->starts_at ?? $assignment->slot_starts_at);
             $assignmentEnd = CarbonImmutable::parse($assignment->ends_at ?? $assignment->slot_ends_at);
             $partialEmployeeMinutes = $this->employeePartialMinutesForMissing($missing, (int) $assignment->duration_minutes);
-            if ($partialEmployeeMinutes !== null && $this->splitContractAssignmentBetweenEmployeeAndWardManager(
+            if ($partialEmployeeMinutes !== null && $this->splitContractAssignmentBetweenEmployeeAndFlexResource(
                 $planningRunId,
                 $planningPeriodId,
-                $wardManagerId,
+                $flexResourceId,
                 $resourceId,
                 $assignment,
                 $partialEmployeeMinutes,
                 $resourceSkills,
-                $wardManagerSkills,
+                $flexResourceSkills,
             )) {
                 return true;
             }
@@ -218,15 +225,15 @@ final class EloquentPlanningResultPersister
                 return true;
             }
 
-            if ($this->splitContractAssignmentBetweenEmployeeAndWardManager(
+            if ($this->splitContractAssignmentBetweenEmployeeAndFlexResource(
                 $planningRunId,
                 $planningPeriodId,
-                $wardManagerId,
+                $flexResourceId,
                 $resourceId,
                 $assignment,
                 min($missing, (int) $assignment->duration_minutes),
                 $resourceSkills,
-                $wardManagerSkills,
+                $flexResourceSkills,
             )) {
                 return true;
             }
@@ -250,26 +257,26 @@ final class EloquentPlanningResultPersister
         return $remainder >= $this->minimumEmployeeSegmentMinutes() ? $remainder : null;
     }
 
-    private function splitContractAssignmentBetweenEmployeeAndWardManager(
+    private function splitContractAssignmentBetweenEmployeeAndFlexResource(
         int $planningRunId,
         int $planningPeriodId,
-        int $wardManagerId,
+        int $flexResourceId,
         int $resourceId,
         object $assignment,
         int $employeeMinutes,
         array $resourceSkills,
-        array $wardManagerSkills,
+        array $flexResourceSkills,
     ): bool {
-        if (! in_array((string) ($assignment->shift_code ?? ''), $this->wardManagerAllowedShiftCodes($wardManagerId), true)) {
+        if (! in_array((string) ($assignment->shift_code ?? ''), $this->flexResourceAllowedShiftCodes($flexResourceId), true)) {
             return false;
         }
         if ($employeeMinutes < $this->minimumEmployeeSegmentMinutes() || $employeeMinutes >= (int) $assignment->duration_minutes) {
             return false;
         }
-        if (! $this->resourceHasDemandSlotSkills($wardManagerSkills, (int) $assignment->demand_slot_id)) {
+        if (! $this->resourceHasDemandSlotSkills($flexResourceSkills, (int) $assignment->demand_slot_id)) {
             return false;
         }
-        if (! $this->seniorCoverageStaysCoveredAfterResourceChange($planningRunId, $assignment, array_values(array_unique([...$resourceSkills, ...$wardManagerSkills])))) {
+        if (! $this->seniorCoverageStaysCoveredAfterResourceChange($planningRunId, $assignment, array_values(array_unique([...$resourceSkills, ...$flexResourceSkills])))) {
             return false;
         }
         if ($this->demandSlotHasNominalSplit($planningRunId, (int) $assignment->demand_slot_id)) {
@@ -282,17 +289,17 @@ final class EloquentPlanningResultPersister
         if ($assignmentStart >= $employeeStart) {
             return false;
         }
-        if ($this->wardManagerSplitCountForDay($planningRunId, $wardManagerId, $assignmentStart->toDateString()) >= $this->maxWardManagerSplitsPerDay($wardManagerId)) {
+        if ($this->flexResourceSplitCountForDay($planningRunId, $flexResourceId, $assignmentStart->toDateString()) >= $this->maxFlexResourceSplitsPerDay($flexResourceId)) {
             return false;
         }
         if ($this->hasAssignmentConflict($planningRunId, $planningPeriodId, $resourceId, $employeeStart, $assignmentEnd)) {
             return false;
         }
-        if (! $this->wardManagerCanCoverPrefix($planningRunId, $planningPeriodId, $wardManagerId, $assignmentStart, $employeeStart)) {
+        if (! $this->flexResourceCanCoverPrefix($planningRunId, $planningPeriodId, $flexResourceId, $assignmentStart, $employeeStart)) {
             return false;
         }
 
-        $this->reduceWardManagerPrimaryConflicts($planningRunId, $planningPeriodId, $wardManagerId, $assignmentStart, $employeeStart);
+        $this->reduceFlexResourcePrimaryConflicts($planningRunId, $planningPeriodId, $flexResourceId, $assignmentStart, $employeeStart);
         $nextSegment = ((int) DB::table('assignments')
             ->where('planning_run_id', $planningRunId)
             ->where('demand_slot_id', $assignment->demand_slot_id)
@@ -308,7 +315,7 @@ final class EloquentPlanningResultPersister
             'metadata' => json_encode([
                 'segment_kind' => 'contract_split_employee_tail',
                 'replaced_contract_resource_id' => (int) $assignment->resource_id,
-                'ward_manager_resource_id' => $wardManagerId,
+                'flex_resource_id' => $flexResourceId,
             ]),
             'updated_at' => now(),
         ]);
@@ -318,15 +325,15 @@ final class EloquentPlanningResultPersister
             'demand_slot_id' => $assignment->demand_slot_id,
             'slot_position' => $assignment->slot_position,
             'segment_position' => $nextSegment,
-            'resource_id' => $wardManagerId,
+            'resource_id' => $flexResourceId,
             'planning_run_id' => $planningRunId,
             'starts_at' => $assignmentStart->toDateTimeString(),
             'ends_at' => $employeeStart->toDateTimeString(),
             'duration_minutes' => $assignmentStart->diffInMinutes($employeeStart),
-            'source' => 'generated_ward_manager_contract_split_prefix',
+            'source' => 'generated_flex_resource_contract_split_prefix',
             'is_locked' => false,
             'metadata' => json_encode([
-                'segment_kind' => 'ward_manager_contract_split_prefix',
+                'segment_kind' => 'flex_resource_contract_split_prefix',
                 'reduced_contract_resource_id' => (int) $assignment->resource_id,
                 'tail_resource_id' => $resourceId,
             ]),
@@ -347,37 +354,57 @@ final class EloquentPlanningResultPersister
         return max(0, $this->ruleMetadataInt('contract_usage', 'minimum_assignments_per_active_resource', 0));
     }
 
-    private function maxWardManagerSplitsPerDay(int $wardManagerId): int
+    private function maxFlexResourceSplitsPerDay(int $flexResourceId): int
     {
-        return max(1, $this->wardManagerPolicyInt($wardManagerId, 'max_splits_per_day', 0));
+        return max(1, $this->flexResourcePolicyInt($flexResourceId, 'max_splits_per_day', 0));
     }
 
-    private function maxWardManagerPrefixesPerPeriod(int $wardManagerId): int
+    private function maxFlexResourcePrefixesPerPeriod(int $flexResourceId): int
     {
-        return max(0, $this->wardManagerPolicyInt($wardManagerId, 'max_prefixes_per_period', 0));
+        return max(0, $this->flexResourcePolicyInt($flexResourceId, 'max_prefixes_per_period', 0));
     }
 
-    private function wardManagerAllowedShiftCodes(int $wardManagerId): array
+    private function flexResourceAllowedShiftCodes(int $flexResourceId): array
     {
-        $codes = $this->wardManagerPolicy($wardManagerId)['allowed_shift_codes'] ?? [];
+        $codes = $this->flexResourcePolicy($flexResourceId)['allowed_shift_codes'] ?? [];
+
+        return $this->stringList($codes);
+    }
+
+    private function flexResourceSelfTopUpAllowedShiftCodes(int $flexResourceId): array
+    {
+        $codes = $this->flexResourcePolicy($flexResourceId)['self_top_up_allowed_shift_codes'] ?? [];
+
+        return $this->stringList($codes);
+    }
+
+    private function flexResourceSelfTopUpAllowedUnitCodes(int $flexResourceId): array
+    {
+        $codes = $this->flexResourcePolicy($flexResourceId)['self_top_up_allowed_unit_codes'] ?? [];
+
+        return $this->stringList($codes);
+    }
+
+    private function stringList(mixed $codes): array
+    {
         $codes = is_array($codes) ? $codes : [$codes];
 
         return array_values(array_filter(array_map('strval', $codes)));
     }
 
-    private function wardManagerPolicyInt(int $wardManagerId, string $key, int $fallback): int
+    private function flexResourcePolicyInt(int $flexResourceId, string $key, int $fallback): int
     {
-        return (int) ($this->wardManagerPolicy($wardManagerId)[$key] ?? $fallback);
+        return (int) ($this->flexResourcePolicy($flexResourceId)[$key] ?? $fallback);
     }
 
-    private function wardManagerPolicy(int $wardManagerId): array
+    private function flexResourcePolicy(int $flexResourceId): array
     {
-        $policy = $this->ruleMetadata('ward_manager_one_split_per_day');
+        $policy = $this->ruleMetadata('flex_resource_one_split_per_day');
         if (! Schema::hasTable('resource_substitution_policies')) {
             return $policy;
         }
 
-        foreach (DB::table('resource_substitution_policies')->where('resource_id', $wardManagerId)->get(['metadata']) as $row) {
+        foreach (DB::table('resource_substitution_policies')->where('resource_id', $flexResourceId)->get(['metadata']) as $row) {
             $metadata = json_decode($row->metadata ?? '[]', true) ?: [];
             $policy = array_replace($policy, $metadata);
         }
@@ -582,27 +609,27 @@ final class EloquentPlanningResultPersister
             ->values();
     }
 
-    private function wardManagerPrefixMinutes(int $wardManagerId): int
+    private function flexResourcePrefixMinutes(int $flexResourceId): int
     {
-        return max(1, $this->wardManagerPolicyInt($wardManagerId, 'prefix_minutes', 0));
+        return max(1, $this->flexResourcePolicyInt($flexResourceId, 'prefix_minutes', 0));
     }
 
-    private function reduceContractUsageWithWardManagerPrefixes(int $planningRunId, int $planningPeriodId): void
+    private function reduceContractUsageWithFlexResourcePrefixes(int $planningRunId, int $planningPeriodId): void
     {
-        $wardManagerId = $this->wardManagerResourceId();
-        if ($wardManagerId === null) {
+        $flexResourceId = $this->flexResourceId();
+        if ($flexResourceId === null) {
             return;
         }
 
-        $maxPrefixes = $this->maxWardManagerPrefixesPerPeriod($wardManagerId);
+        $maxPrefixes = $this->maxFlexResourcePrefixesPerPeriod($flexResourceId);
         $prefixes = 0;
 
-        foreach ($this->wardDayAssignmentsForWardManagerPrefix($planningRunId, $wardManagerId) as $assignment) {
+        foreach ($this->assignmentsForFlexResourcePrefix($planningRunId, $flexResourceId) as $assignment) {
             if ($prefixes >= $maxPrefixes) {
                 break;
             }
 
-            $prefixMinutes = min($this->wardManagerPrefixMinutes($wardManagerId), ((int) $assignment->duration_minutes) - $this->minimumEmployeeSegmentMinutes());
+            $prefixMinutes = min($this->flexResourcePrefixMinutes($flexResourceId), ((int) $assignment->duration_minutes) - $this->minimumEmployeeSegmentMinutes());
             if ($prefixMinutes <= 0) {
                 continue;
             }
@@ -613,14 +640,14 @@ final class EloquentPlanningResultPersister
             if ($prefixEndsAt >= $endsAt || $prefixEndsAt->diffInMinutes($endsAt) < $this->minimumEmployeeSegmentMinutes()) {
                 continue;
             }
-            if ($this->wardManagerSplitCountForDay($planningRunId, $wardManagerId, $startsAt->toDateString()) >= $this->maxWardManagerSplitsPerDay($wardManagerId)) {
+            if ($this->flexResourceSplitCountForDay($planningRunId, $flexResourceId, $startsAt->toDateString()) >= $this->maxFlexResourceSplitsPerDay($flexResourceId)) {
                 continue;
             }
-            if (! $this->wardManagerCanCoverPrefix($planningRunId, $planningPeriodId, $wardManagerId, $startsAt, $prefixEndsAt)) {
+            if (! $this->flexResourceCanCoverPrefix($planningRunId, $planningPeriodId, $flexResourceId, $startsAt, $prefixEndsAt)) {
                 continue;
             }
 
-            $this->reduceWardManagerPrimaryConflicts($planningRunId, $planningPeriodId, $wardManagerId, $startsAt, $prefixEndsAt);
+            $this->reduceFlexResourcePrimaryConflicts($planningRunId, $planningPeriodId, $flexResourceId, $startsAt, $prefixEndsAt);
 
             $nextSegment = ((int) DB::table('assignments')
                 ->where('planning_run_id', $planningRunId)
@@ -631,10 +658,10 @@ final class EloquentPlanningResultPersister
             DB::table('assignments')->where('id', $assignment->id)->update([
                 'starts_at' => $prefixEndsAt->toDateTimeString(),
                 'duration_minutes' => $prefixEndsAt->diffInMinutes($endsAt),
-                'source' => 'generated_reduced_by_ward_manager_prefix',
+                'source' => 'generated_reduced_by_flex_resource_prefix',
                 'metadata' => json_encode([
-                    'segment_kind' => 'tail_after_ward_manager_prefix',
-                    'ward_manager_resource_id' => $wardManagerId,
+                    'segment_kind' => 'tail_after_flex_resource_prefix',
+                    'flex_resource_id' => $flexResourceId,
                 ]),
                 'updated_at' => now(),
             ]);
@@ -644,15 +671,15 @@ final class EloquentPlanningResultPersister
                 'demand_slot_id' => $assignment->demand_slot_id,
                 'slot_position' => $assignment->slot_position,
                 'segment_position' => $nextSegment,
-                'resource_id' => $wardManagerId,
+                'resource_id' => $flexResourceId,
                 'planning_run_id' => $planningRunId,
                 'starts_at' => $startsAt->toDateTimeString(),
                 'ends_at' => $prefixEndsAt->toDateTimeString(),
                 'duration_minutes' => $prefixMinutes,
-                'source' => 'generated_ward_manager_prefix',
+                'source' => 'generated_flex_resource_prefix',
                 'is_locked' => false,
                 'metadata' => json_encode([
-                    'segment_kind' => 'ward_manager_prefix',
+                    'segment_kind' => 'flex_resource_prefix',
                     'reduced_resource_id' => (int) $assignment->resource_id,
                 ]),
                 'created_at' => now(),
@@ -663,9 +690,10 @@ final class EloquentPlanningResultPersister
         }
     }
 
-    private function wardDayAssignmentsForWardManagerPrefix(int $planningRunId, int $wardManagerId): array
+    private function assignmentsForFlexResourcePrefix(int $planningRunId, int $flexResourceId): array
     {
-        $wardManagerSkills = $this->skillIdsForResource($wardManagerId);
+        $flexResourceSkills = $this->skillIdsForResource($flexResourceId);
+        $primaryUnitIds = $this->flexResourcePrimaryUnitIds($flexResourceId);
 
         return DB::table('assignments')
             ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
@@ -674,8 +702,8 @@ final class EloquentPlanningResultPersister
             ->join('resources', 'resources.id', '=', 'assignments.resource_id')
             ->where('assignments.planning_run_id', $planningRunId)
             ->where('assignments.duration_minutes', '>', $this->minimumEmployeeSegmentMinutes())
-            ->whereIn('shift_templates.code', $this->wardManagerAllowedShiftCodes($wardManagerId))
-            ->where('planning_units.code', '<>', 'ward_manager')
+            ->whereIn('shift_templates.code', $this->flexResourceAllowedShiftCodes($flexResourceId))
+            ->when($primaryUnitIds !== [], fn ($query) => $query->whereNotIn('planning_units.id', $primaryUnitIds))
             ->get([
                 'assignments.*',
                 'resources.metadata as resource_metadata',
@@ -684,17 +712,16 @@ final class EloquentPlanningResultPersister
                 'demand_slots.ends_at as slot_ends_at',
                 'demand_slots.metadata as slot_metadata',
             ])
-            ->filter(function ($assignment) use ($planningRunId, $wardManagerSkills): bool {
-                $metadata = json_decode($assignment->resource_metadata ?? '[]', true) ?: [];
-                if (in_array('ward_manager', $metadata['roles'] ?? [], true)) {
+            ->filter(function ($assignment) use ($planningRunId, $flexResourceId, $flexResourceSkills): bool {
+                if ((int) $assignment->resource_id === $flexResourceId) {
                     return false;
                 }
 
-                if (! $this->resourceHasDemandSlotSkills($wardManagerSkills, (int) $assignment->demand_slot_id)) {
+                if (! $this->resourceHasDemandSlotSkills($flexResourceSkills, (int) $assignment->demand_slot_id)) {
                     return false;
                 }
 
-                return $this->seniorCoverageStaysCoveredAfterPrefix($planningRunId, $assignment, $wardManagerSkills);
+                return $this->seniorCoverageStaysCoveredAfterPrefix($planningRunId, $assignment, $flexResourceSkills);
             })
             ->sortByDesc(function ($assignment) use ($planningRunId): int {
                 $metadata = json_decode($assignment->resource_metadata ?? '[]', true) ?: [];
@@ -717,9 +744,9 @@ final class EloquentPlanningResultPersister
         return array_diff($requiredSkills, $resourceSkills) === [];
     }
 
-    private function seniorCoverageStaysCoveredAfterPrefix(int $planningRunId, object $assignment, array $wardManagerSkills): bool
+    private function seniorCoverageStaysCoveredAfterPrefix(int $planningRunId, object $assignment, array $flexResourceSkills): bool
     {
-        return $this->seniorCoverageStaysCoveredAfterResourceChange($planningRunId, $assignment, $wardManagerSkills);
+        return $this->seniorCoverageStaysCoveredAfterResourceChange($planningRunId, $assignment, $flexResourceSkills);
     }
 
     private function seniorCoverageStaysCoveredAfterResourceChange(int $planningRunId, object $assignment, array $replacementSkills): bool
@@ -826,20 +853,21 @@ final class EloquentPlanningResultPersister
             ->where('demand_slot_id', $demandSlotId)
             ->where(function ($query): void {
                 $query->where('metadata', 'like', '%"segment_kind":"contract_prefix_reduced"%')
-                    ->orWhere('metadata', 'like', '%"segment_kind":"ward_manager_prefix"%')
-                    ->orWhere('metadata', 'like', '%"segment_kind":"ward_manager_contract_split_prefix"%')
+                    ->orWhere('metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
+                    ->orWhere('metadata', 'like', '%"segment_kind":"flex_resource_contract_split_prefix"%')
                     ->orWhere('metadata', 'like', '%"segment_kind":"contract_split_employee_tail"%');
             })
             ->exists();
     }
 
-    private function wardManagerCanCoverPrefix(int $planningRunId, int $planningPeriodId, int $wardManagerId, CarbonImmutable $startsAt, CarbonImmutable $endsAt): bool
+    private function flexResourceCanCoverPrefix(int $planningRunId, int $planningPeriodId, int $flexResourceId, CarbonImmutable $startsAt, CarbonImmutable $endsAt): bool
     {
-        if ($this->windowBlockedForResource($wardManagerId, $startsAt, $endsAt)) {
+        $primaryUnitIds = $this->flexResourcePrimaryUnitIds($flexResourceId);
+        if ($this->windowBlockedForResource($flexResourceId, $startsAt, $endsAt)) {
             return false;
         }
 
-        foreach (DB::table('absences')->where('resource_id', $wardManagerId)->where('blocks_planning', true)->get(['starts_at', 'ends_at']) as $absence) {
+        foreach (DB::table('absences')->where('resource_id', $flexResourceId)->where('blocks_planning', true)->get(['starts_at', 'ends_at']) as $absence) {
             if ($startsAt < CarbonImmutable::parse($absence->ends_at) && CarbonImmutable::parse($absence->starts_at) < $endsAt) {
                 return false;
             }
@@ -849,8 +877,8 @@ final class EloquentPlanningResultPersister
             ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
             ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
             ->where('assignments.planning_run_id', $planningRunId)
-            ->where('assignments.resource_id', $wardManagerId)
-            ->where('planning_units.code', '<>', 'ward_manager')
+            ->where('assignments.resource_id', $flexResourceId)
+            ->when($primaryUnitIds !== [], fn ($query) => $query->whereNotIn('planning_units.id', $primaryUnitIds))
             ->get(['assignments.starts_at', 'assignments.ends_at', 'demand_slots.starts_at as slot_starts_at', 'demand_slots.ends_at as slot_ends_at']) as $assignment) {
             $assignmentStart = CarbonImmutable::parse($assignment->starts_at ?? $assignment->slot_starts_at);
             $assignmentEnd = CarbonImmutable::parse($assignment->ends_at ?? $assignment->slot_ends_at);
@@ -860,22 +888,22 @@ final class EloquentPlanningResultPersister
         }
 
         $duration = $startsAt->diffInMinutes($endsAt);
-        $releasedMinutes = $this->wardManagerPrimaryOverlapMinutes($planningRunId, $wardManagerId, $startsAt, $endsAt);
+        $releasedMinutes = $this->flexResourcePrimaryOverlapMinutes($planningRunId, $flexResourceId, $startsAt, $endsAt);
         $netMinutes = max(0, $duration - $releasedMinutes);
         if ($netMinutes <= 0) {
             return true;
         }
 
-        $maxDay = (int) (DB::table('resource_planning_limits')->where('resource_id', $wardManagerId)->where('planning_period_id', $planningPeriodId)->value('max_minutes_per_day') ?? 0);
-        if ($maxDay > 0 && $this->plannedMinutesForDay($planningRunId, $wardManagerId, $startsAt->toDateString()) - $releasedMinutes + $duration > $maxDay) {
+        $maxDay = (int) (DB::table('resource_planning_limits')->where('resource_id', $flexResourceId)->where('planning_period_id', $planningPeriodId)->value('max_minutes_per_day') ?? 0);
+        if ($maxDay > 0 && $this->plannedMinutesForDay($planningRunId, $flexResourceId, $startsAt->toDateString()) - $releasedMinutes + $duration > $maxDay) {
             return false;
         }
 
-        $limit = DB::table('resource_planning_limits')->where('resource_id', $wardManagerId)->where('planning_period_id', $planningPeriodId)->first(['target_minutes_per_month', 'max_minutes_per_month']);
+        $limit = DB::table('resource_planning_limits')->where('resource_id', $flexResourceId)->where('planning_period_id', $planningPeriodId)->first(['target_minutes_per_month', 'max_minutes_per_month']);
         $monthlyLimit = (int) ($limit?->max_minutes_per_month ?? $limit?->target_minutes_per_month ?? 0);
         if ($monthlyLimit > 0) {
-            $planned = $this->plannedWorkMinutes($planningRunId)[$wardManagerId] ?? 0;
-            $absences = $this->paidAbsenceMinutes($planningPeriodId)[$wardManagerId] ?? 0;
+            $planned = $this->plannedWorkMinutes($planningRunId)[$flexResourceId] ?? 0;
+            $absences = $this->paidAbsenceMinutes($planningPeriodId)[$flexResourceId] ?? 0;
             if ($planned - $releasedMinutes + $duration + $absences > $monthlyLimit) {
                 return false;
             }
@@ -884,15 +912,20 @@ final class EloquentPlanningResultPersister
         return true;
     }
 
-    private function wardManagerPrimaryOverlapMinutes(int $planningRunId, int $wardManagerId, CarbonImmutable $startsAt, CarbonImmutable $endsAt): int
+    private function flexResourcePrimaryOverlapMinutes(int $planningRunId, int $flexResourceId, CarbonImmutable $startsAt, CarbonImmutable $endsAt): int
     {
         $minutes = 0;
+        $primaryUnitIds = $this->flexResourcePrimaryUnitIds($flexResourceId);
+        if ($primaryUnitIds === []) {
+            return 0;
+        }
+
         foreach (DB::table('assignments')
             ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
             ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
             ->where('assignments.planning_run_id', $planningRunId)
-            ->where('assignments.resource_id', $wardManagerId)
-            ->where('planning_units.code', 'ward_manager')
+            ->where('assignments.resource_id', $flexResourceId)
+            ->when($primaryUnitIds !== [], fn ($query) => $query->whereIn('planning_units.id', $primaryUnitIds))
             ->get(['assignments.starts_at', 'assignments.ends_at', 'demand_slots.starts_at as slot_starts_at', 'demand_slots.ends_at as slot_ends_at']) as $assignment) {
             $assignmentStart = CarbonImmutable::parse($assignment->starts_at ?? $assignment->slot_starts_at);
             $assignmentEnd = CarbonImmutable::parse($assignment->ends_at ?? $assignment->slot_ends_at);
@@ -908,12 +941,13 @@ final class EloquentPlanningResultPersister
 
     private function addSupplementaryNominalTopUp(int $planningRunId, int $planningPeriodId, int $resourceId, int $missing, array $allowedShiftCodes = [], array $allowedUnitCodes = []): bool
     {
+        $primaryUnitIds = $this->allFlexResourcePrimaryUnitIds();
         $slots = DB::table('demand_slots')
             ->leftJoin('shift_templates', 'shift_templates.id', '=', 'demand_slots.shift_template_id')
             ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
             ->where('demand_slots.planning_period_id', $planningPeriodId)
             ->where('demand_slots.duration_minutes', '>=', $missing)
-            ->where('planning_units.code', '<>', 'ward_manager')
+            ->when($primaryUnitIds !== [], fn ($query) => $query->whereNotIn('planning_units.id', $primaryUnitIds))
             ->orderBy('demand_slots.starts_at')
             ->get(['demand_slots.*', 'shift_templates.code as shift_code', 'planning_units.code as unit_code']);
 
@@ -1136,14 +1170,14 @@ final class EloquentPlanningResultPersister
             ->count();
     }
 
-    private function wardManagerSplitCountForDay(int $planningRunId, int $wardManagerId, string $day): int
+    private function flexResourceSplitCountForDay(int $planningRunId, int $flexResourceId, string $day): int
     {
         return DB::table('assignments')
             ->where('planning_run_id', $planningRunId)
-            ->where('resource_id', $wardManagerId)
+            ->where('resource_id', $flexResourceId)
             ->where(function ($query): void {
-                $query->where('metadata', 'like', '%"segment_kind":"ward_manager_prefix"%')
-                    ->orWhere('metadata', 'like', '%"segment_kind":"ward_manager_contract_split_prefix"%');
+                $query->where('metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
+                    ->orWhere('metadata', 'like', '%"segment_kind":"flex_resource_contract_split_prefix"%');
             })
             ->whereRaw('date(starts_at) = ?', [$day])
             ->count();
@@ -1162,14 +1196,19 @@ final class EloquentPlanningResultPersister
             ->count();
     }
 
-    private function reduceWardManagerPrimaryConflicts(int $planningRunId, int $planningPeriodId, int $wardManagerId, CarbonImmutable $startsAt, CarbonImmutable $endsAt): void
+    private function reduceFlexResourcePrimaryConflicts(int $planningRunId, int $planningPeriodId, int $flexResourceId, CarbonImmutable $startsAt, CarbonImmutable $endsAt): void
     {
+        $primaryUnitIds = $this->flexResourcePrimaryUnitIds($flexResourceId);
+        if ($primaryUnitIds === []) {
+            return;
+        }
+
         foreach (DB::table('assignments')
             ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
             ->join('planning_units', 'planning_units.id', '=', 'demand_slots.planning_unit_id')
             ->where('assignments.planning_run_id', $planningRunId)
-            ->where('assignments.resource_id', $wardManagerId)
-            ->where('planning_units.code', 'ward_manager')
+            ->where('assignments.resource_id', $flexResourceId)
+            ->whereIn('planning_units.id', $primaryUnitIds)
             ->get(['assignments.*', 'demand_slots.starts_at as slot_starts_at', 'demand_slots.ends_at as slot_ends_at']) as $assignment) {
             $assignmentStart = CarbonImmutable::parse($assignment->starts_at ?? $assignment->slot_starts_at);
             $assignmentEnd = CarbonImmutable::parse($assignment->ends_at ?? $assignment->slot_ends_at);
@@ -1199,7 +1238,7 @@ final class EloquentPlanningResultPersister
 
             $metadata = json_decode($assignment->metadata ?? '[]', true) ?: [];
             $baseMetadata = array_merge($metadata, [
-                'segment_kind' => 'ward_manager_primary_reduced',
+                'segment_kind' => 'flex_resource_primary_reduced',
                 'reduced_by_window' => [
                     'starts_at' => $startsAt->toDateTimeString(),
                     'ends_at' => $endsAt->toDateTimeString(),
@@ -1211,7 +1250,7 @@ final class EloquentPlanningResultPersister
                 'starts_at' => $firstSegment[0]->toDateTimeString(),
                 'ends_at' => $firstSegment[1]->toDateTimeString(),
                 'duration_minutes' => $firstSegment[0]->diffInMinutes($firstSegment[1]),
-                'source' => 'generated_ward_manager_reduced',
+                'source' => 'generated_flex_resource_reduced',
                 'metadata' => json_encode($baseMetadata),
                 'updated_at' => now(),
             ]);
@@ -1228,12 +1267,12 @@ final class EloquentPlanningResultPersister
                     'demand_slot_id' => $assignment->demand_slot_id,
                     'slot_position' => $assignment->slot_position,
                     'segment_position' => $nextSegment++,
-                    'resource_id' => $wardManagerId,
+                    'resource_id' => $flexResourceId,
                     'planning_run_id' => $planningRunId,
                     'starts_at' => $segment[0]->toDateTimeString(),
                     'ends_at' => $segment[1]->toDateTimeString(),
                     'duration_minutes' => $segment[0]->diffInMinutes($segment[1]),
-                    'source' => 'generated_ward_manager_reduced',
+                    'source' => 'generated_flex_resource_reduced',
                     'is_locked' => false,
                     'metadata' => json_encode($baseMetadata),
                     'created_at' => now(),
@@ -1342,16 +1381,54 @@ final class EloquentPlanningResultPersister
             ->all();
     }
 
-    private function wardManagerResourceId(): ?int
+    private function flexResourceId(): ?int
     {
+        if (Schema::hasTable('resource_substitution_policies')) {
+            $resourceId = DB::table('resource_substitution_policies')
+                ->orderBy('id')
+                ->value('resource_id');
+            if ($resourceId !== null) {
+                return (int) $resourceId;
+            }
+        }
+
         foreach (DB::table('resources')->where('is_active', true)->get(['id', 'metadata']) as $resource) {
             $metadata = json_decode($resource->metadata ?? '[]', true) ?: [];
-            if (in_array('ward_manager', $metadata['roles'] ?? [], true)) {
+            if (array_intersect(['flex_resource', 'ward_manager'], $metadata['roles'] ?? []) !== []) {
                 return (int) $resource->id;
             }
         }
 
         return null;
+    }
+
+    private function flexResourcePrimaryUnitIds(int $flexResourceId): array
+    {
+        if (! Schema::hasTable('resource_substitution_policies')) {
+            return [];
+        }
+
+        return DB::table('resource_substitution_policies')
+            ->where('resource_id', $flexResourceId)
+            ->pluck('primary_planning_unit_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function allFlexResourcePrimaryUnitIds(): array
+    {
+        if (! Schema::hasTable('resource_substitution_policies')) {
+            return [];
+        }
+
+        return DB::table('resource_substitution_policies')
+            ->pluck('primary_planning_unit_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function skillIdsForResource(int $resourceId): array

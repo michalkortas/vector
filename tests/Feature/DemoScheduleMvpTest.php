@@ -33,7 +33,7 @@ it('loads demo image data and per resource limits from json source', function ()
     $resource16Metadata = json_decode(DB::table('resources')->where('id', $resource16Id)->value('metadata'), true);
     $contractRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'contract_usage')->value('metadata'), true);
     $spreadRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'spread_partial_top_ups')->value('metadata'), true);
-    $wardManagerRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'ward_manager_one_split_per_day')->value('metadata'), true);
+    $wardManagerRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'flex_resource_one_split_per_day')->value('metadata'), true);
     $evenNightsRuleMetadata = json_decode(DB::table('planning_rule_settings')->where('code', 'even_nights')->value('metadata'), true);
     $resource5VacationMinutes = DB::table('absences')->where('resource_id', $resource5Id)->sum('nominal_minutes');
     $resource12Id = DB::table('resources')->where('employee_number', 12)->value('id');
@@ -76,7 +76,7 @@ it('loads demo image data and per resource limits from json source', function ()
         ->and($wardManagerRuleMetadata['max_prefixes_per_period'])->toBe(4)
         ->and($wardManagerRuleMetadata['prefix_minutes'])->toBe(335)
         ->and($wardManagerRuleMetadata['allowed_shift_codes'])->toBe(['DAY_12H'])
-        ->and((bool) DB::table('planning_rule_settings')->where('code', 'ward_manager_one_split_per_day')->value('can_toggle'))->toBeFalse()
+        ->and((bool) DB::table('planning_rule_settings')->where('code', 'flex_resource_one_split_per_day')->value('can_toggle'))->toBeFalse()
         ->and(DB::table('planning_rule_settings')->where('code', 'even_nights')->value('weight'))->toBe(3000)
         ->and($evenNightsRuleMetadata['min_night_share_percent'])->toBe(25)
         ->and($evenNightsRuleMetadata['max_night_share_percent'])->toBe(60)
@@ -210,7 +210,7 @@ it('separates demand coverage from technical top ups in the schedule payload', f
     foreach ([
         [1, $resourceId, $slot->starts_at, $slot->ends_at, 720, []],
         [2, $resourceId, '2026-07-01 14:35:00', $slot->ends_at, 265, ['segment_kind' => 'supplementary_nominal_top_up', 'covers_demand' => false]],
-        [3, $wardManagerId, $slot->starts_at, '2026-07-01 12:35:00', 335, ['segment_kind' => 'ward_manager_contract_split_prefix']],
+        [3, $wardManagerId, $slot->starts_at, '2026-07-01 12:35:00', 335, ['segment_kind' => 'flex_resource_contract_split_prefix']],
     ] as [$position, $assignmentResourceId, $startsAt, $endsAt, $duration, $metadata]) {
         DB::table('assignments')->insert([
             'planning_period_id' => $periodId,
@@ -376,7 +376,7 @@ it('completes a planning job and writes valid assignments', function (): void {
     $maxWardManagerSplitsPerDay = (int) DB::table('assignments')
         ->where('planning_run_id', $runId)
         ->where('resource_id', $wardManagerId)
-        ->where('metadata', 'like', '%"segment_kind":"ward_manager_prefix"%')
+        ->where('metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
         ->selectRaw('date(starts_at) as day, count(*) as split_count')
         ->groupBy('day')
         ->get()
@@ -384,7 +384,7 @@ it('completes a planning job and writes valid assignments', function (): void {
     $wardManagerPrefixes = DB::table('assignments')
         ->where('planning_run_id', $runId)
         ->where('resource_id', $wardManagerId)
-        ->where('metadata', 'like', '%"segment_kind":"ward_manager_prefix"%')
+        ->where('metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
         ->count();
     $wardManagerNightTopUps = DB::table('assignments')
         ->join('demand_slots', 'demand_slots.id', '=', 'assignments.demand_slot_id')
@@ -392,7 +392,7 @@ it('completes a planning job and writes valid assignments', function (): void {
         ->where('assignments.planning_run_id', $runId)
         ->where('assignments.resource_id', $wardManagerId)
         ->where(function ($query): void {
-            $query->where('assignments.metadata', 'like', '%"segment_kind":"ward_manager_prefix"%')
+            $query->where('assignments.metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
                 ->orWhere('assignments.metadata', 'like', '%"segment_kind":"supplementary_nominal_top_up"%');
         })
         ->where('shift_templates.code', '<>', 'DAY_12H')
@@ -401,7 +401,7 @@ it('completes a planning job and writes valid assignments', function (): void {
         ->where('assignments.planning_run_id', $runId)
         ->where('assignments.resource_id', $wardManagerId)
         ->where(function ($query): void {
-            $query->where('assignments.metadata', 'like', '%"segment_kind":"ward_manager_prefix"%')
+            $query->where('assignments.metadata', 'like', '%"segment_kind":"flex_resource_prefix"%')
                 ->orWhere('assignments.metadata', 'like', '%"segment_kind":"supplementary_nominal_top_up"%');
         })
         ->get(['assignments.demand_slot_id']);
@@ -693,7 +693,7 @@ it('allows ward manager to prefix a non senior day slot when another senior cove
     }
 
     $persister = new EloquentPlanningResultPersister;
-    $method = new ReflectionMethod($persister, 'wardDayAssignmentsForWardManagerPrefix');
+    $method = new ReflectionMethod($persister, 'assignmentsForFlexResourcePrefix');
     $method->setAccessible(true);
     $candidates = collect($method->invoke($persister, $runId, $wardManagerId));
 
@@ -778,7 +778,7 @@ it('splits a contract day shift between an underfilled employee and ward manager
         ]);
 
     $persister = new EloquentPlanningResultPersister;
-    $method = new ReflectionMethod($persister, 'splitContractAssignmentBetweenEmployeeAndWardManager');
+    $method = new ReflectionMethod($persister, 'splitContractAssignmentBetweenEmployeeAndFlexResource');
     $method->setAccessible(true);
     $split = $method->invoke(
         $persister,
@@ -795,7 +795,7 @@ it('splits a contract day shift between an underfilled employee and ward manager
     $tail = DB::table('assignments')->where('id', $assignmentId)->first();
     $prefix = DB::table('assignments')
         ->where('planning_run_id', $runId)
-        ->where('metadata', 'like', '%"segment_kind":"ward_manager_contract_split_prefix"%')
+        ->where('metadata', 'like', '%"segment_kind":"flex_resource_contract_split_prefix"%')
         ->first();
 
     expect($split)->toBeTrue()

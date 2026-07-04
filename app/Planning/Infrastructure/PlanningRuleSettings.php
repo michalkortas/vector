@@ -13,6 +13,8 @@ final class PlanningRuleSettings
             return;
         }
 
+        self::renameRuleCode('ward_manager_one_split_per_day', 'flex_resource_one_split_per_day');
+
         foreach (config('planning.rules', []) as $rule) {
             $canToggle = (bool) ($rule['can_toggle'] ?? true);
             $existing = DB::table('planning_rule_settings')->where('code', $rule['code'])->first();
@@ -68,6 +70,28 @@ final class PlanningRuleSettings
 
             DB::table('planning_rule_settings')->where('code', $rule['code'])->update($updates);
         }
+    }
+
+    private static function renameRuleCode(string $from, string $to): void
+    {
+        $existing = DB::table('planning_rule_settings')->where('code', $from)->first(['id']);
+        if ($existing === null) {
+            return;
+        }
+
+        $targetExists = DB::table('planning_rule_settings')->where('code', $to)->exists();
+        if ($targetExists) {
+            DB::table('planning_rule_settings')->where('code', $from)->delete();
+
+            return;
+        }
+
+        DB::table('planning_rule_settings')
+            ->where('code', $from)
+            ->update([
+                'code' => $to,
+                'updated_at' => now(),
+            ]);
     }
 
     public static function resetWeightsToDefaults(): void
