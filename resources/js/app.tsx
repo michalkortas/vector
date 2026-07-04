@@ -119,6 +119,39 @@ function stopReasonLabel(run: PlanningRun) {
   return '-';
 }
 
+const statusLabels: Record<string, string> = {
+  queued: 'w kolejce',
+  running: 'liczenie',
+  completed: 'zakończono',
+  failed: 'błąd',
+};
+
+const technicalCodeLabels: Record<string, string> = {
+  unassigned_slot: 'Nieobsadzone sloty',
+  missing_skill: 'Brak wymaganych umiejętności',
+  senior_coverage_missing: 'Brak wymaganej starszej',
+  absence_conflict: 'Kolizja z absencją',
+  availability_conflict: 'Kolizja z dostępnością',
+  holiday_conflict: 'Kolizja ze świętem',
+  overlap: 'Nakładające się zmiany',
+  min_rest_violation: 'Za krótki odpoczynek',
+  daily_limit_exceeded: 'Przekroczony limit dzienny',
+  nominal_limit_exceeded: 'Przekroczony nominał etatu',
+  monthly_limit_exceeded: 'Przekroczony limit miesięczny',
+  quarterly_limit_exceeded: 'Przekroczony limit kwartalny',
+  nominal_underfilled: 'Niedopełniony nominał',
+  nominal_carryover: 'Niedobór do rozliczenia kwartalnego',
+};
+
+function statusLabel(status: string | undefined) {
+  if (!status) return 'brak';
+  return statusLabels[status] ?? status;
+}
+
+function technicalLabel(code: string, fallback?: string) {
+  return technicalCodeLabels[code] ?? fallback ?? code;
+}
+
 function absenceCoversDay(absence: Absence, dayDate: string) {
   return dayDate >= dateOnly(absence.starts_at) && dayDate < dateOnly(absence.ends_at);
 }
@@ -298,12 +331,12 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
         )}
 
         <div className="mb-4 grid gap-3 md:grid-cols-7">
-          <Metric label="Status" value={props.latestRun?.status ?? 'brak'} />
-          <Metric label="Score" value={props.latestRun?.score_total?.toString() ?? '-'} />
+          <Metric label="Status" value={statusLabel(props.latestRun?.status)} />
+          <Metric label="Ocena" value={props.latestRun?.score_total?.toString() ?? '-'} />
           <Metric label="Próby" value={props.latestRun?.metadata?.evaluated_candidates !== undefined ? `${props.latestRun.metadata.evaluated_candidates}${props.latestRun.metadata.estimated_candidates ? `/${props.latestRun.metadata.estimated_candidates}` : ''}` : (isGenerating ? 'w toku' : '-')} />
           <Metric label="Generacja" value={props.latestRun?.metadata?.configured_generations ? `${props.latestRun.metadata.completed_generations ?? 0}/${props.latestRun.metadata.configured_generations}` : '-'} />
           <Metric label="Zakończenie" value={stopReasonLabel(props.latestRun)} />
-          <Metric label="Hard violations" value={props.latestRun?.hard_violations_count?.toString() ?? '0'} />
+          <Metric label="Naruszenia twarde" value={props.latestRun?.hard_violations_count?.toString() ?? '0'} />
           <Metric label="Nieobsadzone" value={props.latestRun?.unassigned_slots_count?.toString() ?? '0'} />
         </div>
 
@@ -421,9 +454,9 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_420px]">
           <section className="bg-white p-4 ring-1 ring-zinc-200">
-            <h3 className="mb-3 flex items-center gap-2 font-semibold"><Activity size={16} />Score components</h3>
+            <h3 className="mb-3 flex items-center gap-2 font-semibold"><Activity size={16} />Składowe oceny</h3>
             <div className="grid gap-2 md:grid-cols-2">
-              {props.scoreComponents.map((component) => <div key={component.id} className="flex justify-between border border-zinc-200 px-3 py-2 text-sm"><span>{component.label}</span><b>{component.score}</b></div>)}
+              {props.scoreComponents.map((component) => <div key={component.id} className="flex justify-between border border-zinc-200 px-3 py-2 text-sm"><span>{technicalLabel(component.code, component.label)}</span><b>{component.score}</b></div>)}
             </div>
           </section>
           <section className="bg-white p-4 ring-1 ring-zinc-200">
@@ -431,7 +464,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
             <div className="max-h-72 space-y-2 overflow-auto text-sm">
               {props.violations.length === 0 ? <p className="text-zinc-500">Brak naruszeń dla ostatniego wyniku.</p> : props.violations.map((v) => (
                 <div key={v.id} className={`border p-2 ${violationStyle(v)}`}>
-                  <b>{v.code}</b>
+                  <b>{technicalLabel(v.code)}</b>
                   {v.employee_number && <p className="font-medium">{v.employee_number}. {v.resource_name}</p>}
                   <p>{v.message}</p>
                   {violationDetails(v) && <p className="text-xs">{violationDetails(v)}</p>}
