@@ -2,12 +2,13 @@
 
 namespace Database\Seeders;
 
+use App\Planning\Jobs\SeedDemoData;
 use Illuminate\Database\Seeder;
 
 final class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->call(DemoScheduleFromImageSeeder::class);
+        SeedDemoData::dispatchSync((string) config('demo.scenario', SeedDemoData::MEDICAL));
     }
 }

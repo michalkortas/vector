@@ -10,6 +10,7 @@ use App\Planning\Engine\Scoring\ContractUsageScoreRule;
 use App\Planning\Engine\Scoring\NightRecoveryAfterNightScoreRule;
 use App\Planning\Engine\Scoring\SameResourceStreakScoreRule;
 use App\Planning\Engine\Scoring\ShiftBalanceScoreRule;
+use App\Planning\Engine\Support\ScheduleFacts;
 use App\Planning\Infrastructure\PlanningRuleSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +40,7 @@ it('penalizes work on the day after a night shift', function (): void {
     config()->set('planning.weights.night_recovery_after_night', 12000);
 
     $problem = planningProblemForRuleScores([
-        1 => ['id' => 1, 'starts_at' => '2026-07-01 19:00:00', 'ends_at' => '2026-07-02 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+        1 => ['id' => 1, 'starts_at' => '2026-07-01 22:00:00', 'ends_at' => '2026-07-02 06:00:00', 'duration_minutes' => 480, 'shift_code' => 'NIGHT_8H', 'metadata' => ['shift' => ['balance_group' => 'night']]],
         2 => ['id' => 2, 'starts_at' => '2026-07-02 07:00:00', 'ends_at' => '2026-07-02 19:00:00', 'duration_minutes' => 720, 'shift_code' => 'DAY_12H'],
     ]);
 
@@ -54,8 +55,8 @@ it('penalizes consecutive night shifts', function (): void {
     config()->set('planning.weights.consecutive_nights', 20000);
 
     $problem = planningProblemForRuleScores([
-        1 => ['id' => 1, 'starts_at' => '2026-07-01 19:00:00', 'ends_at' => '2026-07-02 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
-        2 => ['id' => 2, 'starts_at' => '2026-07-02 19:00:00', 'ends_at' => '2026-07-03 07:00:00', 'duration_minutes' => 720, 'shift_code' => 'NIGHT_12H'],
+        1 => ['id' => 1, 'starts_at' => '2026-07-01 22:00:00', 'ends_at' => '2026-07-02 06:00:00', 'duration_minutes' => 480, 'shift_code' => 'NIGHT_8H', 'metadata' => ['shift' => ['balance_group' => 'night']]],
+        2 => ['id' => 2, 'starts_at' => '2026-07-02 22:00:00', 'ends_at' => '2026-07-03 06:00:00', 'duration_minutes' => 480, 'shift_code' => 'NIGHT_8H', 'metadata' => ['shift' => ['balance_group' => 'night']]],
     ]);
 
     $component = (new ConsecutiveNightShiftScoreRule)->evaluate($problem, new ScheduleChromosome(['1:1' => 1, '2:1' => 1]));
@@ -63,6 +64,24 @@ it('penalizes consecutive night shifts', function (): void {
     expect($component->code)->toBe('consecutive_nights')
         ->and($component->score)->toBe(20000)
         ->and($component->metadata['count'])->toBe(1);
+});
+
+it('recognizes night shifts from metadata before falling back to the shift code', function (): void {
+    expect(ScheduleFacts::isNightShift([
+        'shift_code' => 'THIRD_8H',
+        'metadata' => ['shift' => ['balance_group' => 'night']],
+    ]))->toBeTrue()
+        ->and(ScheduleFacts::isNightShift([
+            'shift_code' => 'THIRD_8H',
+            'metadata' => ['balance_group' => 'night'],
+        ]))->toBeTrue()
+        ->and(ScheduleFacts::isNightShift([
+            'shift_code' => 'NIGHT_8H',
+            'metadata' => ['balance_group' => 'morning'],
+        ]))->toBeFalse()
+        ->and(ScheduleFacts::isNightShift([
+            'shift_code' => 'NIGHT_8H',
+        ]))->toBeTrue();
 });
 
 it('penalizes contract usage over the preferred max from source data', function (): void {

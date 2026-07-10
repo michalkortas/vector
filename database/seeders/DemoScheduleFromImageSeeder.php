@@ -29,13 +29,15 @@ final class DemoScheduleFromImageSeeder extends Seeder
             $shiftIds = $this->seedShifts($data);
             $resourceIds = $this->seedResources($data, $groupId, $skillIds, $periodId);
             $absenceTypeIds = $this->seedAbsenceTypes($data);
-            $this->seedAbsences($data, $resourceIds, $absenceTypeIds);
+            $this->seedAbsences($data, $resourceIds, $absenceTypeIds, $periodId);
             $this->seedAvailabilityRules($data, $resourceIds);
             $this->seedHolidays($data, $resourceIds);
             $this->seedUnitRules($data, $unitIds, $shiftIds, $resourceIds);
             $this->seedSubstitutionPolicies($data, $unitIds, $shiftIds, $resourceIds);
             $this->seedDemandSlots($data, $periodId, $unitIds, $shiftIds, $skillIds);
         });
+
+        PlanningRuleSettings::applyProfile('medical');
     }
 
     private function seedSkills(array $data): array
@@ -61,7 +63,12 @@ final class DemoScheduleFromImageSeeder extends Seeder
                 'type' => 'month',
                 'monthly_norm_minutes' => $data['monthly_norm_minutes'],
                 'quarterly_norm_minutes' => $data['quarterly_norm_minutes'],
-                'metadata' => json_encode(['department' => $data['department'], 'source' => $data['source_file']]),
+                'metadata' => json_encode([
+                    'demo_scenario' => 'medical',
+                    'source_checksum' => hash_file('sha256', base_path('sources/grafik_2026_07.extracted.json')),
+                    'department' => $data['department'],
+                    'source' => $data['source_file'],
+                ]),
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
@@ -130,6 +137,9 @@ final class DemoScheduleFromImageSeeder extends Seeder
             $plannedDutiesMinutes = $this->parseDurationExpressionMinutes($plannedDutiesExpression);
             $workloadPolicy = $employee['workload_policy'] ?? 'must_fill_nominal';
             $employmentFraction = (float) ($employee['employment_fraction'] ?? 1);
+            $nominalWorkdayMinutes = (int) ($employee['nominal_workday_minutes']
+                ?? $data['resource_limit_defaults']['nominal_workday_minutes']
+                ?? 455);
             $policyGroupCode = $data['planning_unit_resource_policy']['resource_policy_group_codes_by_employee_number'][(string) $employee['employee_number']]
                 ?? $employee['resource_policy_group_code']
                 ?? null;
@@ -140,6 +150,7 @@ final class DemoScheduleFromImageSeeder extends Seeder
                     'external_code' => 'EMP-'.$employee['employee_number'],
                     'name' => $employee['name'],
                     'is_active' => ! in_array($plannedDutiesExpression, ['-'], true),
+                    'nominal_workday_minutes' => $nominalWorkdayMinutes,
                     'metadata' => json_encode([
                         'planned_duties_expression_raw' => $plannedDutiesExpression,
                         'planned_duties_minutes' => $plannedDutiesMinutes,
@@ -164,7 +175,10 @@ final class DemoScheduleFromImageSeeder extends Seeder
 
             $target = $workloadPolicy === 'minimize_usage'
                 ? null
-                : $this->fractionalMinutes((int) $data['monthly_norm_minutes'], $employmentFraction);
+                : $this->fractionalMinutes(
+                    $this->nominalWeekdayMinutes('2026-07-01', '2026-07-31', $nominalWorkdayMinutes),
+                    $employmentFraction,
+                );
             $quarterTarget = $workloadPolicy === 'minimize_usage'
                 ? null
                 : $this->fractionalMinutes((int) $data['resource_limit_defaults']['target_minutes_per_quarter'], $employmentFraction);
@@ -198,7 +212,9 @@ final class DemoScheduleFromImageSeeder extends Seeder
                     'name' => $type['name'],
                     'blocks_planning' => $type['blocks_planning'],
                     'counts_as_work_time' => $type['counts_as_work_time'],
-                    'nominal_minutes_per_day' => $type['nominal_minutes_per_day'],
+                    'nominal_minutes_per_day' => $data['resource_limit_defaults']['nominal_workday_minutes']
+                        ?? $type['nominal_minutes_per_day']
+                        ?? 455,
                     'metadata' => json_encode([]),
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -210,7 +226,7 @@ final class DemoScheduleFromImageSeeder extends Seeder
         return $ids;
     }
 
-    private function seedAbsences(array $data, array $resourceIds, array $absenceTypeIds): void
+    private function seedAbsences(array $data, array $resourceIds, array $absenceTypeIds, int $periodId): void
     {
         $creditedAbsenceMinutes = [];
         foreach ($data['absences'] as $absence) {
@@ -221,8 +237,12 @@ final class DemoScheduleFromImageSeeder extends Seeder
             $employee = collect($data['employees'])->firstWhere('employee_number', $absence['resource_employee_number']);
             $targetMinutes = (($employee['workload_policy'] ?? 'must_fill_nominal') === 'minimize_usage')
                 ? null
-                : $this->fractionalMinutes((int) $data['monthly_norm_minutes'], (float) ($employee['employment_fraction'] ?? 1));
-            $rawNominalMinutes = $this->paidAbsenceMinutes($absence['start_date'], $absence['end_date'], (int) ($data['resource_limit_defaults']['nominal_minutes_per_absence_day'] ?? 480));
+                : (int) DB::table('resource_planning_limits')
+                    ->where('resource_id', $resourceId)
+                    ->where('planning_period_id', $periodId)
+                    ->value('target_minutes_per_month');
+            $nominalWorkdayMinutes = (int) DB::table('resources')->where('id', $resourceId)->value('nominal_workday_minutes');
+            $rawNominalMinutes = $this->nominalWeekdayMinutes($absence['start_date'], $absence['end_date'], $nominalWorkdayMinutes);
             $remainingCredit = $targetMinutes === null ? $rawNominalMinutes : max(0, $targetMinutes - ($creditedAbsenceMinutes[$resourceId] ?? 0));
             $nominalMinutes = min($rawNominalMinutes, $remainingCredit);
             $creditedAbsenceMinutes[$resourceId] = ($creditedAbsenceMinutes[$resourceId] ?? 0) + $nominalMinutes;
@@ -246,7 +266,7 @@ final class DemoScheduleFromImageSeeder extends Seeder
         }
     }
 
-    private function paidAbsenceMinutes(string $startDate, string $endDate, int $minutesPerDay): int
+    private function nominalWeekdayMinutes(string $startDate, string $endDate, int $minutesPerDay): int
     {
         $minutes = 0;
         for ($day = CarbonImmutable::parse($startDate); $day <= CarbonImmutable::parse($endDate); $day = $day->addDay()) {

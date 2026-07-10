@@ -23,7 +23,7 @@ final class ConsecutiveNightShiftScoreRule implements ScoreRuleInterface
             $nightDays = [];
             foreach ($assignments as $assignment) {
                 $slot = $problem->slot($assignment['slot_id']);
-                if (($slot['shift_code'] ?? '') === 'NIGHT_12H') {
+                if (ScheduleFacts::isNightShift($slot)) {
                     $nightDays[substr((string) $assignment['starts_at'], 0, 10)] = true;
                 }
             }

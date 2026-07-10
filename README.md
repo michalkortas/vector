@@ -7,6 +7,19 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Demo scenarios
+
+The default dataset is selected with `DEMO_SCENARIO=medical`. Switch the active
+demo synchronously with:
+
+```bash
+docker compose exec app php artisan demo:seed medical
+docker compose exec app php artisan demo:seed vehicles
+```
+
+Only one scenario is active at a time because the current planning schema is
+not tenant-scoped.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

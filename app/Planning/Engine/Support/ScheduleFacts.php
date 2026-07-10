@@ -8,6 +8,23 @@ use Carbon\CarbonImmutable;
 
 final class ScheduleFacts
 {
+    public static function isNightShift(?array $slot): bool
+    {
+        if ($slot === null) {
+            return false;
+        }
+
+        $metadata = is_array($slot['metadata'] ?? null) ? $slot['metadata'] : [];
+        $shiftMetadata = is_array($metadata['shift'] ?? null) ? $metadata['shift'] : [];
+        $balanceGroup = $shiftMetadata['balance_group'] ?? $metadata['balance_group'] ?? null;
+
+        if (is_string($balanceGroup)) {
+            return $balanceGroup === 'night';
+        }
+
+        return str_contains((string) ($slot['shift_code'] ?? ''), 'NIGHT');
+    }
+
     public static function genes(ScheduleChromosome $chromosome): array
     {
         $rows = [];

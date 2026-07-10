@@ -1,10 +1,11 @@
 import '../css/app.css';
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
 import { createInertiaApp, router, usePage } from '@inertiajs/react';
 import { createRoot } from 'react-dom/client';
-import { Activity, Lock, Moon, Play, RefreshCw, Sun, Unlock } from 'lucide-react';
+import { Activity, Lock, Moon, Play, RefreshCw, Settings2, Sun, Unlock, X } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 
-type Period = { id: number; name: string; starts_on: string; ends_on: string; monthly_norm_minutes: number; quarterly_norm_minutes: number };
+type Period = { id: number; name: string; starts_on: string; ends_on: string; monthly_norm_minutes: number; quarterly_norm_minutes: number; metadata?: { demo_scenario?: 'medical' | 'vehicles' } };
 type PlanningRun = { id: number; status: string; score_total: number | null; hard_violations_count: number; soft_violations_count: number; unassigned_slots_count: number; metadata?: { phase?: string; evaluated_candidates?: number; estimated_candidates?: number; completed_generations?: number; configured_generations?: number; configured_population_size?: number; progress_percent?: number; best_score?: number; stop_reason?: string; time_limit_seconds?: number } } | null;
 type Assignment = { id: number; demand_slot_id: number; resource_id: number | null; slot_position: number; segment_position: number; is_locked: boolean | number; source: string; display_layer: 'demand' | 'top_up' | 'resource_only'; metadata: { segment_kind?: string } | null; employee_number: number | null; resource_name: string | null; starts_at: string; ends_at: string; duration_minutes: number; slot_starts_at: string; unit_code: string; unit_name: string; shift_code: string; shift_name: string };
 type Resource = {
@@ -29,7 +30,7 @@ type ScoreComponent = { id: number; code: string; label: string; score: number; 
 type PlanningRule = { code: string; name: string; description: string; type: string; is_active: boolean; can_toggle: boolean; weight: number };
 type Absence = { employee_number: number; resource_name: string; type_name: string; starts_at: string; ends_at: string };
 type Holiday = { holiday_date: string; name: string; scope: string; blocks_planning: boolean };
-type ScheduleRow = { shift_code: string; shift_name: string; unit_code: string; unit_name: string };
+type ScheduleRow = { shift_code: string; shift_name: string; unit_code: string; unit_name: string; sector_code?: string | null; sector_name?: string | null; sector_order?: number | null };
 type EmployeeDayInfo = { type: 'work' | 'absence' | 'off'; label: string; title: string; colorClass?: string; shiftCodes?: string[] };
 
 const unitViews: Record<string, { label: string; short: string; badgeClass: string; cellClass: string; rowClass: string }> = {
@@ -78,7 +79,7 @@ function unitView(code: string | undefined, fallback: string) {
 }
 
 function shiftIcon(code: string) {
-  return code === 'NIGHT_12H'
+  return code.includes('NIGHT')
     ? <Moon size={14} className="text-indigo-700" />
     : <Sun size={14} className="text-amber-600" />;
 }
@@ -230,6 +231,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
   const [isSubmittingGeneration, setIsSubmittingGeneration] = useState(false);
   const [isWaitingForRunRefresh, setIsWaitingForRunRefresh] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
+  const [isRulesOpen, setIsRulesOpen] = useState(false);
   const wasGenerating = useRef(false);
   const isGenerating = props.latestRun?.status === 'queued' || props.latestRun?.status === 'running';
   const shouldPoll = isGenerating || isSubmittingGeneration || isWaitingForRunRefresh;
@@ -237,6 +239,8 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
   const days = Array.from({ length: 31 }, (_, index) => index + 1);
   const holidayDays = new Set(props.holidays.filter((holiday) => holiday.blocks_planning).map((holiday) => dayOfMonth(holiday.holiday_date)));
   const vacationAbsences = props.absences.filter((absence) => absence.type_name.toLowerCase().includes('urlop'));
+  const isVehiclesDemo = props.period?.metadata?.demo_scenario === 'vehicles';
+  const activeRulesCount = props.planningRules.filter((rule) => rule.is_active).length;
   const vacationEmployeeNumbers = new Set(vacationAbsences.map((absence) => absence.employee_number));
   const resourcesWithVacations = props.resources.filter((resource) => vacationEmployeeNumbers.has(resource.employee_number));
   const byCell = new Map<string, Assignment[]>();
@@ -345,17 +349,36 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
           <Metric label="Nieobsadzone" value={props.latestRun?.unassigned_slots_count?.toString() ?? '0'} />
         </div>
 
-        <section className="mb-4 bg-white p-4 ring-1 ring-zinc-200">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="font-semibold">Reguły planowania</h3>
-            <span className="text-xs text-zinc-500">Aktywne przy następnym generowaniu</span>
-          </div>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {props.planningRules.map((rule) => <PlanningRuleRow key={rule.code} rule={rule} />)}
-          </div>
-        </section>
+        <div className="mb-4">
+          <button type="button" onClick={() => setIsRulesOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-950 shadow-sm hover:bg-zinc-50">
+            <Settings2 size={16} />
+            Aktywne reguły {activeRulesCount} z {props.planningRules.length}
+          </button>
+        </div>
 
-        <SectionHeader title="Grafik działowy" />
+        <Dialog open={isRulesOpen} onClose={setIsRulesOpen} className="relative z-50">
+          <DialogBackdrop transition className="fixed inset-0 bg-zinc-950/50 transition-opacity data-closed:opacity-0" />
+          <div className="fixed inset-0 overflow-y-auto p-4 sm:p-8">
+            <div className="flex min-h-full items-start justify-center">
+              <DialogPanel transition className="w-full max-w-6xl bg-white shadow-xl ring-1 ring-zinc-950/10 transition data-closed:translate-y-2 data-closed:opacity-0">
+                <div className="flex items-start justify-between gap-4 border-b border-zinc-200 px-5 py-4">
+                  <div>
+                    <DialogTitle className="font-semibold text-zinc-950">Reguły planowania</DialogTitle>
+                    <p className="mt-1 text-sm text-zinc-600">Aktywne reguły {activeRulesCount} z {props.planningRules.length}. Zmiany obowiązują przy następnym generowaniu.</p>
+                  </div>
+                  <button type="button" onClick={() => setIsRulesOpen(false)} className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950" aria-label="Zamknij reguły planowania">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="grid gap-2 p-5 md:grid-cols-2">
+                  {props.planningRules.map((rule) => <PlanningRuleRow key={rule.code} rule={rule} />)}
+                </div>
+              </DialogPanel>
+            </div>
+          </div>
+        </Dialog>
+
+        <SectionHeader title={isVehiclesDemo ? 'Obłożenie floty' : 'Grafik działowy'} />
         <div className="overflow-x-auto border border-zinc-300 bg-white">
           <table className="w-full min-w-[1600px] table-fixed border-collapse text-xs">
             <colgroup>
@@ -369,13 +392,30 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
               </tr>
             </thead>
             <tbody>
-              {props.scheduleRows.map((row) => {
+              {props.scheduleRows.map((row, rowIndex) => {
                 const shiftCode = row.shift_code;
                 const unit = unitView(row.unit_code, row.unit_name);
                 const rowKey = `${shiftCode}:${row.unit_code}`;
                 const hasTopUpRow = topUpRows.has(rowKey);
+                const previousRow = props.scheduleRows[rowIndex - 1];
+                const startsSector = isVehiclesDemo && row.sector_code !== previousRow?.sector_code;
+                const startsVehicle = isVehiclesDemo && row.unit_code !== previousRow?.unit_code;
                 return (
                   <Fragment key={rowKey}>
+                    {startsSector && (
+                      <tr>
+                        <th colSpan={days.length + 1} className="border border-sky-200 bg-sky-50 px-3 py-2 text-left text-sm font-semibold text-sky-950">
+                          {row.sector_name ?? row.sector_code}
+                        </th>
+                      </tr>
+                    )}
+                    {startsVehicle && (
+                      <tr>
+                        <th colSpan={days.length + 1} className="border border-zinc-300 bg-zinc-100 px-3 py-2 text-left font-semibold text-zinc-950">
+                          {row.unit_name}
+                        </th>
+                      </tr>
+                    )}
                     {hasTopUpRow && (
                       <tr className="border-t-2 border-t-emerald-200">
                         <th className={`sticky left-0 z-10 border border-emerald-200 bg-emerald-50 p-2 text-left font-medium text-emerald-950 ${unit.rowClass}`}>dopełnienie {unit.label}</th>
@@ -405,9 +445,15 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
                     )}
                     <tr>
                       <th className={`sticky left-0 z-10 border border-zinc-300 border-l-4 bg-white p-2 text-left font-medium ${unit.rowClass}`}>
-                        <span className="flex items-center gap-2">{shiftIcon(shiftCode)}{shiftCode}</span>
-                        <span className={`mt-1 inline-flex rounded-sm border px-1.5 py-0.5 text-[11px] font-semibold ${unit.badgeClass}`}>{unit.short}</span>
-                        <span className="ml-2 font-normal text-zinc-600">{unit.label}</span>
+                        {isVehiclesDemo ? (
+                          <span className="flex items-center gap-2">{shiftIcon(shiftCode)}{row.shift_name}</span>
+                        ) : (
+                          <>
+                            <span className="flex items-center gap-2">{shiftIcon(shiftCode)}{shiftCode}</span>
+                            <span className={`mt-1 inline-flex rounded-sm border px-1.5 py-0.5 text-[11px] font-semibold ${unit.badgeClass}`}>{unit.short}</span>
+                            <span className="ml-2 font-normal text-zinc-600">{unit.label}</span>
+                          </>
+                        )}
                       </th>
                       {days.map((day) => {
                         const cellAssignments = byCell.get(`${shiftCode}:${row.unit_code}:${day}`) ?? [];
@@ -438,7 +484,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
           </table>
         </div>
 
-        <SectionHeader title="Grafik pracowników" />
+        <SectionHeader title={isVehiclesDemo ? 'Grafik kierowców' : 'Grafik pracowników'} />
         <EmployeeScheduleTable
           days={days}
           period={props.period}
@@ -449,7 +495,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
           onHighlight={setHighlightedEmployeeNumber}
         />
 
-        <SectionHeader title="Urlopy" />
+        <SectionHeader title={isVehiclesDemo ? 'Urlopy kierowców' : 'Urlopy'} />
         <VacationTable
           days={days}
           period={props.period}
@@ -498,7 +544,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
                 <ResourceStat label="Nominał miesiąc" value={minutes(r.target_minutes_per_month)} />
                 <ResourceStat label="Max czas" value={r.max_minutes_per_month ? minutes(r.max_minutes_per_month) : 'bez limitu'} />
                 <ResourceStat label="Urlopy" value={minutes(r.planned_absence_minutes)} />
-                <ResourceStat label="Rozkład dyżurów" value={r.actual_duties_note} />
+                <ResourceStat label="Rozkład zmian" value={r.actual_duties_note} />
                 <ResourceStat label="Zaplanowano" value={minutes(r.planned_work_minutes)} />
                 <ResourceStat label="Praca + urlopy" value={minutes(r.planned_total_minutes)} />
               </button>
@@ -507,7 +553,7 @@ function Schedule(props: { period: Period | null; latestRun: PlanningRun; assign
         </div>
 
         <div className="mt-5 bg-white p-4 ring-1 ring-zinc-200">
-          <h3 className="mb-3 font-semibold">Absencje z JPG</h3>
+          <h3 className="mb-3 font-semibold">Absencje</h3>
           <div className="flex flex-wrap gap-2 text-sm">
             {props.absences.map((a, index) => <span key={index} className="rounded-sm border border-amber-300 bg-amber-50 px-2 py-1">{a.employee_number}. {a.resource_name}: {a.type_name}</span>)}
           </div>

@@ -1,0 +1,145 @@
+{
+  "scenario": "vehicles",
+  "source_file": "sources/vehicles_2026_07.demo.json",
+  "resource_group": {
+    "code": "drivers",
+    "name": "Kierowcy",
+    "base_skill_code": "vehicle_driver"
+  },
+  "period": {
+    "name": "Lipiec 2026 - transport krajowy",
+    "type": "month",
+    "starts_on": "2026-07-01",
+    "ends_on": "2026-07-31",
+    "monthly_norm_minutes": 11040,
+    "quarterly_norm_minutes": 31680
+  },
+  "resource_limit_defaults": {
+    "nominal_workday_minutes": 480,
+    "max_minutes_per_day": 480,
+    "min_rest_minutes": 660,
+    "target_minutes_per_quarter": 31680
+  },
+  "sectors": [
+    {"code": "north", "name": "Polska północna"},
+    {"code": "central", "name": "Polska centralna"},
+    {"code": "south", "name": "Polska południowa"}
+  ],
+  "skills": [
+    {"code": "vehicle_driver", "name": "Prawo jazdy C+E"},
+    {"code": "fuel_transport", "name": "Przewóz paliw (ADR)"},
+    {"code": "glass_transport", "name": "Przewóz szkła"},
+    {"code": "refrigerated_transport", "name": "Transport chłodniczy"}
+  ],
+  "shift_templates": [
+    {
+      "code": "MORNING_8H",
+      "name": "Zmiana I",
+      "start_time": "06:00",
+      "end_time": "14:00",
+      "duration_minutes": 480,
+      "crosses_midnight": false,
+      "metadata": {"balance_group": "day", "shift_kind": "morning"}
+    },
+    {
+      "code": "AFTERNOON_8H",
+      "name": "Zmiana II",
+      "start_time": "14:00",
+      "end_time": "22:00",
+      "duration_minutes": 480,
+      "crosses_midnight": false,
+      "metadata": {"balance_group": "day", "shift_kind": "afternoon"}
+    },
+    {
+      "code": "NIGHT_8H",
+      "name": "Zmiana III",
+      "start_time": "22:00",
+      "end_time": "06:00",
+      "duration_minutes": 480,
+      "crosses_midnight": true,
+      "metadata": {"balance_group": "night", "shift_kind": "night"}
+    }
+  ],
+  "vehicles": [
+    {"code": "vehicle_north_01", "name": "Północ 01 - plandeka", "sector_code": "north", "registration": "DEMO-N-01", "vehicle_type": "general_cargo", "required_skill_codes": ["vehicle_driver"]},
+    {"code": "vehicle_north_02", "name": "Północ 02 - cysterna paliwowa", "sector_code": "north", "registration": "DEMO-N-02", "vehicle_type": "fuel_tanker", "required_skill_codes": ["vehicle_driver", "fuel_transport"]},
+    {"code": "vehicle_north_03", "name": "Północ 03 - zestaw do szkła", "sector_code": "north", "registration": "DEMO-N-03", "vehicle_type": "glass_carrier", "required_skill_codes": ["vehicle_driver", "glass_transport"]},
+    {"code": "vehicle_north_04", "name": "Północ 04 - chłodnia", "sector_code": "north", "registration": "DEMO-N-04", "vehicle_type": "refrigerated", "required_skill_codes": ["vehicle_driver", "refrigerated_transport"]},
+    {"code": "vehicle_central_01", "name": "Centrum 01 - plandeka", "sector_code": "central", "registration": "DEMO-C-01", "vehicle_type": "general_cargo", "required_skill_codes": ["vehicle_driver"]},
+    {"code": "vehicle_central_02", "name": "Centrum 02 - cysterna paliwowa", "sector_code": "central", "registration": "DEMO-C-02", "vehicle_type": "fuel_tanker", "required_skill_codes": ["vehicle_driver", "fuel_transport"]},
+    {"code": "vehicle_central_03", "name": "Centrum 03 - zestaw do szkła", "sector_code": "central", "registration": "DEMO-C-03", "vehicle_type": "glass_carrier", "required_skill_codes": ["vehicle_driver", "glass_transport"]},
+    {"code": "vehicle_central_04", "name": "Centrum 04 - chłodnia", "sector_code": "central", "registration": "DEMO-C-04", "vehicle_type": "refrigerated", "required_skill_codes": ["vehicle_driver", "refrigerated_transport"]},
+    {"code": "vehicle_south_01", "name": "Południe 01 - plandeka", "sector_code": "south", "registration": "DEMO-S-01", "vehicle_type": "general_cargo", "required_skill_codes": ["vehicle_driver"]},
+    {"code": "vehicle_south_02", "name": "Południe 02 - cysterna paliwowa", "sector_code": "south", "registration": "DEMO-S-02", "vehicle_type": "fuel_tanker", "required_skill_codes": ["vehicle_driver", "fuel_transport"]},
+    {"code": "vehicle_south_03", "name": "Południe 03 - zestaw do szkła", "sector_code": "south", "registration": "DEMO-S-03", "vehicle_type": "glass_carrier", "required_skill_codes": ["vehicle_driver", "glass_transport"]},
+    {"code": "vehicle_south_04", "name": "Południe 04 - chłodnia", "sector_code": "south", "registration": "DEMO-S-04", "vehicle_type": "refrigerated", "required_skill_codes": ["vehicle_driver", "refrigerated_transport"]}
+  ],
+  "drivers": [
+    {"employee_number": 1001, "external_code": "DRV-N-01", "name": "Kierowca Północ 01", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1002, "external_code": "DRV-N-02", "name": "Kierowca Północ 02", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1003, "external_code": "DRV-N-03", "name": "Kierowca Północ 03", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1004, "external_code": "DRV-N-04", "name": "Kierowca Północ 04", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1005, "external_code": "DRV-N-05", "name": "Kierowca Północ 05", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1006, "external_code": "DRV-N-06", "name": "Kierowca Północ 06", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1007, "external_code": "DRV-N-07", "name": "Kierowca Północ 07", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1008, "external_code": "DRV-N-08", "name": "Kierowca Północ 08", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1009, "external_code": "DRV-N-09", "name": "Kierowca Północ 09", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1010, "external_code": "DRV-N-10", "name": "Kierowca Północ 10", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1011, "external_code": "DRV-N-11", "name": "Kierowca Północ 11", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1012, "external_code": "DRV-N-12", "name": "Kierowca Północ 12", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1013, "external_code": "DRV-N-13", "name": "Kierowca Północ 13", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 1014, "external_code": "DRV-N-14", "name": "Kierowca Północ 14", "driver_mode": "dedicated", "primary_sector_code": "north", "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+
+    {"employee_number": 2001, "external_code": "DRV-C-01", "name": "Kierowca Centrum 01", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2002, "external_code": "DRV-C-02", "name": "Kierowca Centrum 02", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2003, "external_code": "DRV-C-03", "name": "Kierowca Centrum 03", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2004, "external_code": "DRV-C-04", "name": "Kierowca Centrum 04", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2005, "external_code": "DRV-C-05", "name": "Kierowca Centrum 05", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2006, "external_code": "DRV-C-06", "name": "Kierowca Centrum 06", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2007, "external_code": "DRV-C-07", "name": "Kierowca Centrum 07", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2008, "external_code": "DRV-C-08", "name": "Kierowca Centrum 08", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2009, "external_code": "DRV-C-09", "name": "Kierowca Centrum 09", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2010, "external_code": "DRV-C-10", "name": "Kierowca Centrum 10", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2011, "external_code": "DRV-C-11", "name": "Kierowca Centrum 11", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2012, "external_code": "DRV-C-12", "name": "Kierowca Centrum 12", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2013, "external_code": "DRV-C-13", "name": "Kierowca Centrum 13", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 2014, "external_code": "DRV-C-14", "name": "Kierowca Centrum 14", "driver_mode": "dedicated", "primary_sector_code": "central", "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+
+    {"employee_number": 3001, "external_code": "DRV-S-01", "name": "Kierowca Południe 01", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3002, "external_code": "DRV-S-02", "name": "Kierowca Południe 02", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3003, "external_code": "DRV-S-03", "name": "Kierowca Południe 03", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3004, "external_code": "DRV-S-04", "name": "Kierowca Południe 04", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "fuel_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3005, "external_code": "DRV-S-05", "name": "Kierowca Południe 05", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3006, "external_code": "DRV-S-06", "name": "Kierowca Południe 06", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3007, "external_code": "DRV-S-07", "name": "Kierowca Południe 07", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3008, "external_code": "DRV-S-08", "name": "Kierowca Południe 08", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "glass_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3009, "external_code": "DRV-S-09", "name": "Kierowca Południe 09", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3010, "external_code": "DRV-S-10", "name": "Kierowca Południe 10", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3011, "external_code": "DRV-S-11", "name": "Kierowca Południe 11", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3012, "external_code": "DRV-S-12", "name": "Kierowca Południe 12", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3013, "external_code": "DRV-S-13", "name": "Kierowca Południe 13", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 3014, "external_code": "DRV-S-14", "name": "Kierowca Południe 14", "driver_mode": "dedicated", "primary_sector_code": "south", "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+
+    {"employee_number": 4001, "external_code": "DRV-F-NC-01", "name": "Kierowca elastyczny Północ–Centrum 01", "driver_mode": "flex", "secondary_sector_codes": ["north", "central"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 4002, "external_code": "DRV-F-NC-02", "name": "Kierowca elastyczny Północ–Centrum 02", "driver_mode": "flex", "secondary_sector_codes": ["north", "central"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 4003, "external_code": "DRV-F-CS-01", "name": "Kierowca elastyczny Centrum–Południe 01", "driver_mode": "flex", "secondary_sector_codes": ["central", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 4004, "external_code": "DRV-F-CS-02", "name": "Kierowca elastyczny Centrum–Południe 02", "driver_mode": "flex", "secondary_sector_codes": ["central", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 4005, "external_code": "DRV-F-NS-01", "name": "Kierowca elastyczny Północ–Południe 01", "driver_mode": "flex", "secondary_sector_codes": ["north", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+    {"employee_number": 4006, "external_code": "DRV-F-NS-02", "name": "Kierowca elastyczny Północ–Południe 02", "driver_mode": "flex", "secondary_sector_codes": ["north", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "employment", "employment_fraction": 1, "workload_policy": "must_fill_nominal"},
+
+    {"employee_number": 9001, "external_code": "DRV-CON-01", "name": "Kierowca kontraktowy 01", "driver_mode": "contract", "secondary_sector_codes": ["north", "central", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "contract", "workload_policy": "minimize_usage", "preferred_max_minutes": 4320},
+    {"employee_number": 9002, "external_code": "DRV-CON-02", "name": "Kierowca kontraktowy 02", "driver_mode": "contract", "secondary_sector_codes": ["north", "central", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "contract", "workload_policy": "minimize_usage", "preferred_max_minutes": 4320},
+    {"employee_number": 9003, "external_code": "DRV-CON-03", "name": "Kierowca kontraktowy 03", "driver_mode": "contract", "secondary_sector_codes": ["north", "central", "south"], "skill_codes": ["vehicle_driver", "fuel_transport", "glass_transport", "refrigerated_transport"], "employment_type": "contract", "workload_policy": "minimize_usage", "preferred_max_minutes": 4320}
+  ],
+  "absence_types": [
+    {"code": "vacation", "name": "Urlop wypoczynkowy", "blocks_planning": true, "counts_as_work_time": true, "nominal_minutes_per_day": 480},
+    {"code": "sick_leave", "name": "Zwolnienie lekarskie", "blocks_planning": true, "counts_as_work_time": false, "nominal_minutes_per_day": 480}
+  ],
+  "absences": [
+    {"resource_employee_number": 1003, "absence_type": "vacation", "start_date": "2026-07-06", "end_date": "2026-07-08", "blocks_planning": true, "counts_as_work_time": true},
+    {"resource_employee_number": 2006, "absence_type": "vacation", "start_date": "2026-07-13", "end_date": "2026-07-17", "blocks_planning": true, "counts_as_work_time": true},
+    {"resource_employee_number": 3008, "absence_type": "vacation", "start_date": "2026-07-20", "end_date": "2026-07-22", "blocks_planning": true, "counts_as_work_time": true},
+    {"resource_employee_number": 4001, "absence_type": "vacation", "start_date": "2026-07-27", "end_date": "2026-07-28", "blocks_planning": true, "counts_as_work_time": true},
+    {"resource_employee_number": 4004, "absence_type": "vacation", "start_date": "2026-07-30", "end_date": "2026-07-31", "blocks_planning": true, "counts_as_work_time": true}
+  ]
+}

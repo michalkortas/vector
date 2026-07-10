@@ -25,16 +25,16 @@ Dane odczytane z JPG zapisz deterministycznie do JSON/CSV w `source/`, a seedery
 
 Używaj nazw generycznych:
 
-- `Resource` — zasób, na start pracownik
-- `ResourceGroup` — grupa/rola zasobu, np. położna, pielęgniarka, operator
-- `Skill` — umiejętność/uprawnienie
-- `PlanningUnit` — jednostka planistyczna, np. oddział, sala, linia produkcyjna
-- `ShiftTemplate` — szablon zmiany
-- `DemandSlot` — konkretne zapotrzebowanie do obsadzenia
-- `Assignment` — przypisanie zasobu do slotu
-- `Absence` — absencja wyjątkowa
-- `AvailabilityRule` — stała dostępność/niedostępność
-- `PlanningRun` — uruchomienie generatora
+- `Resource` - zasób, na start pracownik
+- `ResourceGroup` - grupa/rola zasobu, np. położna, pielęgniarka, operator
+- `Skill` - umiejętność/uprawnienie
+- `PlanningUnit` - jednostka planistyczna, np. oddział, sala, linia produkcyjna
+- `ShiftTemplate` - szablon zmiany
+- `DemandSlot` - konkretne zapotrzebowanie do obsadzenia
+- `Assignment` - przypisanie zasobu do slotu
+- `Absence` - absencja wyjątkowa
+- `AvailabilityRule` - stała dostępność/niedostępność
+- `PlanningRun` - uruchomienie generatora
 
 W kodzie, bazie i typach TS używaj języka angielskiego.
 W UI używaj języka polskiego.

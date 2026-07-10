@@ -24,6 +24,7 @@ services:
       QUEUE_CONNECTION: redis
       REDIS_CLIENT: predis
       REDIS_HOST: redis
+      DEMO_SCENARIO: ${DEMO_SCENARIO:-medical}
     depends_on:
       - mariadb
       - redis

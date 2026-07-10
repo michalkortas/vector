@@ -21,7 +21,8 @@
 /storage/*.key
 /storage/pail
 /source
-/sources
+/sources/*
+!/sources/vehicles_2026_07.demo.json
 /vendor
 _ide_helper.php
 Homestead.json

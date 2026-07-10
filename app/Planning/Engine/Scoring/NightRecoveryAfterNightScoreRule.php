@@ -29,7 +29,7 @@ final class NightRecoveryAfterNightScoreRule implements ScoreRuleInterface
 
             foreach ($assignments as $assignment) {
                 $slot = $problem->slot($assignment['slot_id']);
-                if (($slot['shift_code'] ?? '') !== 'NIGHT_12H') {
+                if (! ScheduleFacts::isNightShift($slot)) {
                     continue;
                 }
 

@@ -16,15 +16,17 @@ final class PlanningRuleSettings
         self::renameRuleCode('ward_manager_one_split_per_day', 'flex_resource_one_split_per_day');
         self::renameRuleCode('even_nights', 'shift_balance');
 
+        $profileCodes = self::profileCodes(self::currentScenario());
         foreach (config('planning.rules', []) as $rule) {
             $canToggle = (bool) ($rule['can_toggle'] ?? true);
+            $allowedInProfile = $profileCodes === null || in_array($rule['code'], $profileCodes, true);
             $existing = DB::table('planning_rule_settings')->where('code', $rule['code'])->first();
             if ($existing === null) {
                 DB::table('planning_rule_settings')->insert([
                     'code' => $rule['code'],
                     'name' => $rule['name'],
                     'type' => 'standard',
-                    'is_active' => true,
+                    'is_active' => $allowedInProfile,
                     ...(Schema::hasColumn('planning_rule_settings', 'can_toggle') ? ['can_toggle' => $canToggle] : []),
                     'weight' => $rule['weight'],
                     'metadata' => json_encode(['source' => 'config', ...($rule['metadata'] ?? [])]),
@@ -43,7 +45,9 @@ final class PlanningRuleSettings
             if (Schema::hasColumn('planning_rule_settings', 'can_toggle')) {
                 $updates['can_toggle'] = $canToggle;
             }
-            if (! $canToggle) {
+            if (! $allowedInProfile) {
+                $updates['is_active'] = false;
+            } elseif (! $canToggle) {
                 $updates['is_active'] = true;
             }
             if ($rule['code'] === 'even_hours' && (int) $existing->weight === 1) {
@@ -116,19 +120,41 @@ final class PlanningRuleSettings
         }
     }
 
-    public static function all(): array
+    public static function applyProfile(?string $scenario): void
+    {
+        self::ensureDefaults();
+
+        if (! Schema::hasTable('planning_rule_settings')) {
+            return;
+        }
+
+        $profileCodes = self::profileCodes($scenario);
+        foreach (config('planning.rules', []) as $rule) {
+            DB::table('planning_rule_settings')
+                ->where('code', $rule['code'])
+                ->update([
+                    'is_active' => $profileCodes === null || in_array($rule['code'], $profileCodes, true),
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
+    public static function all(bool $visibleOnly = true): array
     {
         self::ensureDefaults();
         $configRules = collect(config('planning.rules', []))->keyBy('code');
+        $profileCodes = self::profileCodes(self::currentScenario());
 
         if (! Schema::hasTable('planning_rule_settings')) {
-            return collect(config('planning.rules', []))->map(fn (array $rule): array => [
-                ...$rule,
-                'description' => $rule['description'] ?? '',
-                'type' => 'standard',
-                'is_active' => true,
-                'can_toggle' => (bool) ($rule['can_toggle'] ?? true),
-            ])->all();
+            return collect(config('planning.rules', []))
+                ->when($visibleOnly && $profileCodes !== null, fn ($rules) => $rules->whereIn('code', $profileCodes))
+                ->map(fn (array $rule): array => [
+                    ...$rule,
+                    'description' => $rule['description'] ?? '',
+                    'type' => 'standard',
+                    'is_active' => $profileCodes === null || in_array($rule['code'], $profileCodes, true),
+                    'can_toggle' => (bool) ($rule['can_toggle'] ?? true),
+                ])->all();
         }
 
         $hasCanToggle = Schema::hasColumn('planning_rule_settings', 'can_toggle');
@@ -137,8 +163,12 @@ final class PlanningRuleSettings
             $columns[] = 'can_toggle';
         }
 
-        return DB::table('planning_rule_settings')
-            ->orderBy('id')
+        $query = DB::table('planning_rule_settings')->orderBy('id');
+        if ($visibleOnly && $profileCodes !== null) {
+            $query->whereIn('code', $profileCodes);
+        }
+
+        return $query
             ->get($columns)
             ->map(fn ($rule): array => [
                 'code' => $rule->code,
@@ -154,7 +184,7 @@ final class PlanningRuleSettings
 
     public static function applyToConfig(): array
     {
-        $settings = collect(self::all())->keyBy('code')->all();
+        $settings = collect(self::all(false))->keyBy('code')->all();
         foreach ($settings as $code => $setting) {
             config()->set('planning.weights.'.$code, $setting['weight']);
             if ($code === 'contract_usage') {
@@ -163,5 +193,32 @@ final class PlanningRuleSettings
         }
 
         return $settings;
+    }
+
+    private static function currentScenario(): ?string
+    {
+        if (! Schema::hasTable('planning_periods')) {
+            return null;
+        }
+
+        foreach (DB::table('planning_periods')->pluck('metadata') as $metadata) {
+            $scenario = json_decode($metadata ?? '[]', true)['demo_scenario'] ?? null;
+            if (is_string($scenario) && $scenario !== '') {
+                return $scenario;
+            }
+        }
+
+        return null;
+    }
+
+    private static function profileCodes(?string $scenario): ?array
+    {
+        if ($scenario === null) {
+            return null;
+        }
+
+        $codes = config('planning.rule_profiles.'.$scenario.'.active_codes');
+
+        return is_array($codes) ? array_values(array_filter($codes, 'is_string')) : null;
     }
 }
